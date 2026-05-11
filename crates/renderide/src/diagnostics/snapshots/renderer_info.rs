@@ -146,10 +146,10 @@ impl RendererInfoSnapshot {
             gpu_supports_float32_filterable: args.gpu_limits.supports_float32_filterable,
             gpu_texture_compression_features: args.gpu_limits.texture_compression_features,
             msaa_requested_samples: args.msaa_requested_samples,
-            msaa_effective_samples: args.gpu.swapchain_msaa_effective(),
-            msaa_max_samples: args.gpu.msaa_max_sample_count(),
-            msaa_effective_samples_stereo: args.gpu.swapchain_msaa_effective_stereo(),
-            msaa_max_samples_stereo: args.gpu.msaa_max_sample_count_stereo(),
+            msaa_effective_samples: args.gpu.msaa().swapchain_msaa_effective(),
+            msaa_max_samples: args.gpu.msaa().msaa_max_sample_count(),
+            msaa_effective_samples_stereo: args.gpu.msaa().swapchain_msaa_effective_stereo(),
+            msaa_max_samples_stereo: args.gpu.msaa().msaa_max_sample_count_stereo(),
         }
     }
 }

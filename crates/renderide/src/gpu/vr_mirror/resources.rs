@@ -1,8 +1,10 @@
-//! Persistent VR mirror state: lazy staging texture, surface uniform buffer, and
-//! per-format surface pipeline cache.
+//! Persistent VR mirror state: lazy staging texture, shared 16-byte UV uniform, and
+//! per-format surface-pipeline cache.
 //!
 //! Per-frame blit logic for eye->staging and staging->surface lives in the sibling
 //! [`super::eye_blit`] / [`super::surface_blit`] modules.
+
+use crate::gpu::blit_kit::pipeline::{ColorBlitPipelineSlot, UvUniformBuffer};
 
 use super::HMD_MIRROR_SOURCE_FORMAT;
 use super::pipelines::surface_pipeline;
@@ -13,8 +15,8 @@ pub struct VrMirrorBlitResources {
     staging_extent: (u32, u32),
     /// `true` after a successful eye->staging copy this session.
     staging_valid: bool,
-    surface_uniform: Option<wgpu::Buffer>,
-    surface_pipeline: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
+    surface_uniform: UvUniformBuffer,
+    surface_pipeline: ColorBlitPipelineSlot,
 }
 
 impl Default for VrMirrorBlitResources {
@@ -30,13 +32,13 @@ impl VrMirrorBlitResources {
             staging_texture: None,
             staging_extent: (0, 0),
             staging_valid: false,
-            surface_uniform: None,
-            surface_pipeline: None,
+            surface_uniform: UvUniformBuffer::new(),
+            surface_pipeline: ColorBlitPipelineSlot::new(),
         }
     }
 
-    /// `true` after [`Self::submit_eye_to_staging`] has copied at least one HMD eye image
-    /// into the staging texture this session.
+    /// `true` after [`Self::submit_eye_to_staging_with_finalize`] has copied at least one HMD
+    /// eye image into the staging texture this session.
     pub fn staging_valid(&self) -> bool {
         self.staging_valid
     }
@@ -53,8 +55,8 @@ impl VrMirrorBlitResources {
         self.staging_extent
     }
 
-    pub(super) fn surface_uniform_buffer(&self) -> Option<&wgpu::Buffer> {
-        self.surface_uniform.as_ref()
+    pub(super) fn surface_uniform(&self) -> &UvUniformBuffer {
+        &self.surface_uniform
     }
 
     pub(super) fn ensure_staging(
@@ -95,17 +97,7 @@ impl VrMirrorBlitResources {
     }
 
     pub(super) fn ensure_surface_uniform(&mut self, device: &wgpu::Device) {
-        if self.surface_uniform.is_some() {
-            return;
-        }
-        let buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vr_mirror_surface_uv"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        crate::profiling::note_resource_churn!(Buffer, "gpu::vr_mirror_surface_uniform");
-        self.surface_uniform = Some(buf);
+        self.surface_uniform.ensure(device, "vr_mirror_surface_uv");
     }
 
     pub(super) fn surface_pipeline_for_format(
@@ -113,12 +105,7 @@ impl VrMirrorBlitResources {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
     ) -> &wgpu::RenderPipeline {
-        let entry = self
-            .surface_pipeline
-            .get_or_insert_with(|| (format, surface_pipeline(device, format)));
-        if entry.0 != format {
-            *entry = (format, surface_pipeline(device, format));
-        }
-        &entry.1
+        self.surface_pipeline
+            .get_or_build(format, |format| surface_pipeline(device, format))
     }
 }

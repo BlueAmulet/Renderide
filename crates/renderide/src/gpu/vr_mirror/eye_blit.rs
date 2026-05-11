@@ -5,9 +5,11 @@
 //! through the renderer's frame-tracked path.
 
 use crate::gpu::GpuContext;
+use crate::gpu::blit_kit::layout::sampled_2d_filtered_layout;
+use crate::gpu::blit_kit::sampler::linear_clamp_sampler;
 use crate::gpu::driver_thread::XrFinalizeWork;
 
-use super::pipelines::{eye_bind_group_layout, eye_pipeline, linear_sampler};
+use super::pipelines::eye_pipeline;
 use super::resources::VrMirrorBlitResources;
 
 impl VrMirrorBlitResources {
@@ -45,10 +47,10 @@ impl VrMirrorBlitResources {
         let staging_view = staging_tex.create_view(&wgpu::TextureViewDescriptor::default());
         crate::profiling::note_resource_churn!(TextureView, "gpu::vr_mirror_eye_staging_view");
 
-        let sampler = linear_sampler(device);
+        let sampler = linear_clamp_sampler(device);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("vr_mirror_eye_to_staging"),
-            layout: eye_bind_group_layout(device),
+            layout: sampled_2d_filtered_layout(device),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,

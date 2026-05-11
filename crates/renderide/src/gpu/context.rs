@@ -10,7 +10,7 @@
 //! - [`headless_targets`] -- [`headless_targets::PrimaryOffscreenTargets`] state and accessors.
 //! - [`submission`] -- driver-thread submit / present facade.
 //! - [`profiler`] -- frame-timing + GPU profiler facade and HUD-facing readouts.
-//! - [`msaa_state`] -- supported / effective MSAA tier state for desktop and stereo paths.
+//! - [`msaa`] -- [`GpuMsaa`] sub-handle for supported / effective MSAA tier state.
 //! - [`mapped_buffer_recovery`] -- mapped staging/readback buffer recovery.
 
 use std::sync::Arc;
@@ -22,8 +22,8 @@ const _: fn() = || {
 };
 
 use super::limits::{GpuLimits, GpuLimitsError};
-use super::mapped_buffer_health::GpuMappedBufferHealth;
 use super::submission_state::GpuSubmissionState;
+use mapped_buffer_recovery::MappedBufferRecoveryFrame;
 use thiserror::Error;
 use winit::window::Window;
 
@@ -31,12 +31,13 @@ mod depth_attachment;
 mod headless_targets;
 mod init;
 mod mapped_buffer_recovery;
-mod msaa_state;
+mod msaa;
 mod profiler;
 mod submission;
 mod surface;
 
 pub use headless_targets::PrimaryOffscreenTargets;
+pub use msaa::GpuMsaa;
 
 /// GPU stack for presentation and future render passes.
 pub struct GpuContext {
@@ -51,20 +52,8 @@ pub struct GpuContext {
     submission: GpuSubmissionState,
     /// Adapter metadata from construction (for diagnostics).
     adapter_info: wgpu::AdapterInfo,
-    /// MSAA tiers supported for the configured surface color format and forward depth/stencil format.
-    /// (sorted ascending: 2, 4, ...). Empty means MSAA is unavailable.
-    msaa_supported_sample_counts: Vec<u32>,
-    /// MSAA tiers supported for **2D array** color + forward depth/stencil format on the OpenXR
-    /// path (sorted ascending). Empty when the adapter lacks
-    /// [`wgpu::Features::MULTISAMPLE_ARRAY`] / [`wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`],
-    /// which silently clamps the stereo request to `1` (MSAA off).
-    msaa_supported_sample_counts_stereo: Vec<u32>,
-    /// Effective swapchain MSAA sample count this frame (1 = off), set via [`Self::set_swapchain_msaa_requested`].
-    swapchain_msaa_effective: u32,
-    /// Requested stereo MSAA (from settings) before clamping; set each XR frame by the runtime.
-    swapchain_msaa_requested_stereo: u32,
-    /// Effective stereo MSAA sample count (1 = off), set via [`Self::set_swapchain_msaa_requested_stereo`].
-    swapchain_msaa_effective_stereo: u32,
+    /// Supported / effective MSAA tier state ([`GpuMsaa`]).
+    msaa: GpuMsaa,
     /// Effective limits and derived caps for this device (shared across backend and uploads).
     limits: Arc<GpuLimits>,
     device: Arc<wgpu::Device>,
@@ -72,8 +61,8 @@ pub struct GpuContext {
     /// Gate that serialises operations that may access the Vulkan queue shared by wgpu and
     /// OpenXR. See [`super::GpuQueueAccessGate`] for details.
     gpu_queue_access_gate: super::GpuQueueAccessGate,
-    /// Shared mapped-buffer invalidation generation set by wgpu and surface error paths.
-    mapped_buffer_health: Arc<GpuMappedBufferHealth>,
+    /// Per-frame recovery policy for CPU-mapped GPU staging/readback buffers.
+    mapped_buffer_recovery: mapped_buffer_recovery::GpuMappedBufferRecovery,
     /// Kept as `'static` so the context can move independently of the window borrow; the window
     /// must outlive this value (owned alongside it in the app handler). [`None`] in headless mode
     /// (see [`Self::new_headless`]).
@@ -94,12 +83,6 @@ pub struct GpuContext {
     /// Depth target matching [`Self::config`] extent; recreated after resize.
     depth_attachment: Option<(wgpu::Texture, wgpu::TextureView)>,
     depth_extent_px: (u32, u32),
-    /// Last mapped-buffer invalidation generation handled by frame setup.
-    mapped_buffer_invalidation_seen_generation: u64,
-    /// Number of upcoming frames that must avoid CPU-mapped staging/readback buffers.
-    mapped_buffer_recovery_frames_remaining: u8,
-    /// Whether the current frame must avoid CPU-mapped staging/readback buffers.
-    avoid_mapped_buffers_this_frame: bool,
     /// Headless primary color/depth target (lazy). Allocated on the first call to
     /// [`Self::primary_offscreen_targets`] when [`Self::is_headless`] is true so the
     /// headless `render_frame` substitution can render the main view to a persistent
@@ -159,5 +142,45 @@ impl GpuContext {
     /// WGPU adapter description captured at init ([`Self::new`]).
     pub fn adapter_info(&self) -> &wgpu::AdapterInfo {
         &self.adapter_info
+    }
+
+    /// MSAA tier state ([`GpuMsaa`]).
+    pub fn msaa(&self) -> &GpuMsaa {
+        &self.msaa
+    }
+
+    /// Mutable MSAA tier state for setting requested sample counts each frame.
+    pub fn msaa_mut(&mut self) -> &mut GpuMsaa {
+        &mut self.msaa
+    }
+
+    /// Records that mapped staging/readback buffers should be discarded before reuse.
+    pub(crate) fn mark_mapped_buffers_invalid(&self, reason: impl AsRef<str>) {
+        self.mapped_buffer_recovery
+            .mark_mapped_buffers_invalid(reason);
+    }
+
+    /// Begins mapped-buffer recovery bookkeeping for a render frame.
+    pub(crate) fn begin_mapped_buffer_recovery_frame(&mut self) -> MappedBufferRecoveryFrame {
+        self.mapped_buffer_recovery
+            .begin_mapped_buffer_recovery_frame()
+    }
+
+    /// Observes invalidations reported by wgpu while the current frame is already running.
+    pub(crate) fn observe_mapped_buffer_invalidation_during_frame(&mut self) -> bool {
+        self.mapped_buffer_recovery
+            .observe_mapped_buffer_invalidation_during_frame()
+    }
+
+    /// Whether this frame should avoid CPU-mapped staging/readback buffers.
+    pub(crate) fn avoid_mapped_buffers_this_frame(&self) -> bool {
+        self.mapped_buffer_recovery
+            .avoid_mapped_buffers_this_frame()
+    }
+
+    /// Current mapped-buffer invalidation generation.
+    pub(crate) fn mapped_buffer_invalidation_generation(&self) -> u64 {
+        self.mapped_buffer_recovery
+            .mapped_buffer_invalidation_generation()
     }
 }

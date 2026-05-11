@@ -6,7 +6,7 @@
 //! ranking rules can be exercised by unit tests without a live wgpu device.
 
 use super::super::context::GpuError;
-use super::super::instance_limits::instance_flags_for_gpu_init;
+use super::super::instance_setup::instance_flags_for_gpu_init;
 
 /// Lower scores rank earlier. Stable across systems so Vulkan ICD reordering does not flip the
 /// chosen adapter.

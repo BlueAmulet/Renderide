@@ -25,7 +25,7 @@
 
 use std::sync::Arc;
 
-use super::mapped_buffer_health::GpuMappedBufferHealth;
+use super::super::sync::mapped_buffer_health::GpuMappedBufferHealth;
 
 /// Number of bytes a 2-entry `Timestamp` query set resolves into (`u64 x 2`).
 const TIMESTAMP_PAIR_BYTES: u64 = 16;

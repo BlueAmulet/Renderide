@@ -365,7 +365,7 @@ impl CompiledRenderGraph {
                 let Some(bb_ref) = backbuffer_view_holder else {
                     return Err(GraphExecuteError::MissingSwapchainView);
                 };
-                let sample_count = gpu.swapchain_msaa_effective().max(1);
+                let sample_count = gpu.msaa().swapchain_msaa_effective().max(1);
                 let (depth_tex, depth_view) = gpu
                     .ensure_depth_target()
                     .map_err(GraphExecuteError::DepthTarget)?;
@@ -384,7 +384,7 @@ impl CompiledRenderGraph {
                 })
             }
             FrameViewTarget::ExternalMultiview(ext) => {
-                let sample_count = gpu.swapchain_msaa_effective_stereo().max(1);
+                let sample_count = gpu.msaa().swapchain_msaa_effective_stereo().max(1);
                 Ok(ResolvedView {
                     depth_texture: ext.depth_texture,
                     depth_view: ext.depth_view,
@@ -409,7 +409,7 @@ impl CompiledRenderGraph {
                 view_id,
                 sample_count: ext
                     .sample_count_policy
-                    .resolve(gpu.swapchain_msaa_effective()),
+                    .resolve(gpu.msaa().swapchain_msaa_effective()),
                 post_processing,
             }),
         }
