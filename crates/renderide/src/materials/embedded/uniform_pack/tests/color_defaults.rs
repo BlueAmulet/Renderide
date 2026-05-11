@@ -8,7 +8,7 @@ use crate::materials::embedded::texture_pools::EmbeddedTexturePools;
 use crate::materials::host_data::{MaterialPropertyStore, MaterialPropertyValue};
 
 #[test]
-fn srgb_material_color_vec4_uniforms_linearize_rgb_only() {
+fn material_color_vec4_uniforms_pass_through_raw() {
     let (reflected, ids, registry) = reflected_with_uniform_fields(&[
         ("_Color", ReflectedUniformScalarKind::Vec4, 16, 0),
         ("_Blend", ReflectedUniformScalarKind::Vec4, 16, 16),
@@ -45,7 +45,6 @@ fn srgb_material_color_vec4_uniforms_linearize_rgb_only() {
     };
     let value_spaces =
         MaterialUniformValueSpaces::for_stem("pbsvoronoicrystal_default", &reflected);
-    let expected = srgb_vec4_rgb_to_linear(input);
 
     let bytes = build_embedded_uniform_bytes_with_value_spaces(
         &reflected,
@@ -58,9 +57,9 @@ fn srgb_material_color_vec4_uniforms_linearize_rgb_only() {
     )
     .expect("uniform bytes");
 
-    assert_eq!(read_f32x4(&bytes, 0), expected);
-    assert_eq!(read_f32x4(&bytes, 16), expected);
-    assert_eq!(read_f32x4(&bytes, 32), expected);
+    assert_eq!(read_f32x4(&bytes, 0), input);
+    assert_eq!(read_f32x4(&bytes, 16), input);
+    assert_eq!(read_f32x4(&bytes, 32), input);
 }
 
 #[test]
@@ -117,7 +116,7 @@ fn color_named_texture_transform_vec4_uniforms_remain_raw() {
 }
 
 #[test]
-fn srgb_material_color_arrays_linearize_only_when_metadata_marks_them() {
+fn material_color_arrays_pass_through_raw() {
     let (reflected, ids, registry) = reflected_with_uniform_fields(&[(
         "_TintColors",
         ReflectedUniformScalarKind::Unsupported,
@@ -156,8 +155,8 @@ fn srgb_material_color_arrays_linearize_only_when_metadata_marks_them() {
     )
     .expect("uniform bytes");
 
-    assert_eq!(read_f32x4(&bytes, 0), srgb_vec4_rgb_to_linear(input[0]));
-    assert_eq!(read_f32x4(&bytes, 16), srgb_vec4_rgb_to_linear(input[1]));
+    assert_eq!(read_f32x4(&bytes, 0), input[0]);
+    assert_eq!(read_f32x4(&bytes, 16), input[1]);
 }
 
 #[test]

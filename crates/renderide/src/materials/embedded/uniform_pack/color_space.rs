@@ -1,4 +1,19 @@
 //! Explicit material uniform value-space metadata.
+//!
+//! By policy, no host-supplied material color uniform is converted from sRGB to linear on
+//! the renderer side. The host (FrooxEngine) routes every material color property through
+//! `MaterialUpdateWriter.SetColor` with `MaterialColorProfile = ColorProfile.sRGB`, producing
+//! sRGB-encoded RGB plus linear alpha on the wire. The reference Unity renderer ingests those
+//! values via `Material.SetVector` (bit-for-bit passthrough, not `SetColor`), so the shader's
+//! `_Color` register receives the sRGB-encoded float directly and multiplies it against a
+//! linearly-decoded sRGB texture sample. That is the de facto contract every existing
+//! Resonite material was authored against; matching it takes precedence over a physically
+//! correct linear pipeline.
+//!
+//! Any conversion to scene-linear remains the shader's responsibility. The per-field
+//! value-space channel below is retained so a future shader authored from scratch can opt
+//! back into a linear pipeline by reintroducing entries to the allow-lists; for now they
+//! are empty.
 
 use hashbrown::HashMap;
 
@@ -62,86 +77,12 @@ impl MaterialUniformValueSpaces {
     }
 }
 
-fn srgb_vec4_uniform_field(field_name: &str) -> bool {
-    matches!(
-        field_name,
-        "_BackgroundColor"
-            | "_BaseColor"
-            | "_BehindColor"
-            | "_BehindFarColor"
-            | "_BehindNearColor"
-            | "_Blend"
-            | "_Color"
-            | "_Color0"
-            | "_Color1"
-            | "_Color2"
-            | "_Color3"
-            | "_ColorTint"
-            | "_EdgeColor"
-            | "_EdgeEmission"
-            | "_EdgeEmissionColor"
-            | "_EmissionColor"
-            | "_EmissionColor1"
-            | "_EmissionColor2"
-            | "_EmissionColor3"
-            | "_EmissionColorFrom"
-            | "_EmissionColorTo"
-            | "_FarColor"
-            | "_FarColor0"
-            | "_FarColor1"
-            | "_FillTint"
-            | "_FresnelTint"
-            | "_FrontColor"
-            | "_FrontFarColor"
-            | "_FrontNearColor"
-            | "_GroundColor"
-            | "_InnerColor"
-            | "_IntersectColor"
-            | "_IntersectEmissionColor"
-            | "_MatcapTint"
-            | "_NearColor"
-            | "_NearColor0"
-            | "_NearColor1"
-            | "_OcclusionColor"
-            | "_OuterColor"
-            | "_OutlineColor"
-            | "_OutlineTint"
-            | "_OutsideColor"
-            | "_OverlayTint"
-            | "_RimColor"
-            | "_SSColor"
-            | "_SecondaryEmissionColor"
-            | "_ShadowRim"
-            | "_SkyTint"
-            | "_SpecColor"
-            | "_SpecularColor"
-            | "_SpecularColor1"
-            | "_SpecularColor2"
-            | "_SpecularColor3"
-            | "_SunColor"
-            | "_Tint"
-            | "_Tint0"
-            | "_Tint1"
-            | "_TintColor"
-            | "_node_2829"
-    )
+fn srgb_vec4_uniform_field(_field_name: &str) -> bool {
+    false
 }
 
-fn srgb_vec4_array_uniform_field(stem: &str, field_name: &str) -> bool {
-    field_name == "_TintColors"
-        && matches!(
-            source_stem_from_target_stem(stem),
-            "pbsdistancelerp"
-                | "pbsdistancelerpspecular"
-                | "pbsdistancelerptransparent"
-                | "pbsdistancelerpspeculartransparent"
-        )
-}
-
-fn source_stem_from_target_stem(stem: &str) -> &str {
-    stem.strip_suffix("_default")
-        .or_else(|| stem.strip_suffix("_multiview"))
-        .unwrap_or(stem)
+fn srgb_vec4_array_uniform_field(_stem: &str, _field_name: &str) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -167,16 +108,16 @@ mod tests {
     }
 
     #[test]
-    fn metadata_marks_known_color_vec4_uniforms() {
+    fn metadata_leaves_material_color_vec4_uniforms_raw() {
         let overlay = reflected_material_value_spaces("overlay_default");
-        assert!(overlay.is_srgb_vec4("_Blend"));
+        assert!(!overlay.is_srgb_vec4("_Blend"));
 
         let voronoi = reflected_material_value_spaces("pbsvoronoicrystal_default");
-        assert!(voronoi.is_srgb_vec4("_EdgeEmission"));
+        assert!(!voronoi.is_srgb_vec4("_EdgeEmission"));
 
         let pbs = reflected_material_value_spaces("pbsmetallic_default");
-        assert!(pbs.is_srgb_vec4("_Color"));
-        assert!(pbs.is_srgb_vec4("_EmissionColor"));
+        assert!(!pbs.is_srgb_vec4("_Color"));
+        assert!(!pbs.is_srgb_vec4("_EmissionColor"));
     }
 
     #[test]
@@ -192,9 +133,9 @@ mod tests {
     }
 
     #[test]
-    fn metadata_marks_only_srgb_authored_color_arrays() {
+    fn metadata_leaves_material_color_arrays_raw() {
         let distance = reflected_material_value_spaces("pbsdistancelerp_default");
-        assert!(distance.is_srgb_vec4_array("_TintColors"));
+        assert!(!distance.is_srgb_vec4_array("_TintColors"));
         assert!(!distance.is_srgb_vec4_array("_Points"));
 
         let gradient = reflected_material_value_spaces("gradientskybox_default");
