@@ -8,12 +8,15 @@
 //! `_EmissionColorFrom`/`To` over the `[_EmissionDistanceFrom, _EmissionDistanceTo]` band, scaled
 //! by the per-point `_TintColors[i]`). The displacement is applied along the surface normal
 //! unless `OVERRIDE_DISPLACE_DIRECTION` is set, in which case it follows
-//! `_DisplacementDirection.xyz`. Reference space is selected by `WORLD_SPACE` / `OBJECT_SPACE`;
-//! if neither host keyword is present, the shader defaults to world space.
+//! `_DisplacementDirection.xyz`. Reference space defaults to world; `LOCAL_SPACE` switches to
+//! object space.
 //!
 //! Precedent for the fixed-size 16-element arrays: `pbsslice.wgsl` ships with
 //! `_Slicers: array<vec4<f32>, 8>` and the host CPU packing is known to support indexed array
 //! material properties.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSDistanceLerp's
+//! shader-specific keyword bits locally.
 
 #import renderide::mesh::vertex as mv
 #import renderide::draw::per_draw as pd
@@ -21,6 +24,7 @@
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
+#import renderide::material::variant_bits as vb
 #import renderide::core::uv as uvu
 
 struct PbsDistanceLerpMaterial {
@@ -42,14 +46,16 @@ struct PbsDistanceLerpMaterial {
     _EmissionDistanceFrom: f32,
     _EmissionDistanceTo: f32,
     _PointCount: f32,
-    WORLD_SPACE: f32,
-    OBJECT_SPACE: f32,
-    OVERRIDE_DISPLACE_DIRECTION: f32,
-    _METALLICMAP: f32,
-    _NORMALMAP: f32,
+    _RenderideVariantBits: u32,
     _Points: array<vec4<f32>, 16>,
     _TintColors: array<vec4<f32>, 16>,
 }
+
+const PBSDL_KW_METALLICMAP: u32 = 1u << 0u;
+const PBSDL_KW_NORMALMAP: u32 = 1u << 1u;
+const PBSDL_KW_LOCAL_SPACE: u32 = 1u << 2u;
+const PBSDL_KW_OVERRIDE_DISPLACE_DIRECTION: u32 = 1u << 3u;
+const PBSDL_KW_WORLD_SPACE: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsDistanceLerpMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -73,6 +79,14 @@ struct VertexOutput {
     @location(5) @interpolate(flat) view_layer: u32,
 }
 
+fn pbsdl_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_METALLICMAP() -> bool { return pbsdl_kw(PBSDL_KW_METALLICMAP); }
+fn kw_NORMALMAP() -> bool { return pbsdl_kw(PBSDL_KW_NORMALMAP); }
+fn kw_LOCAL_SPACE() -> bool { return pbsdl_kw(PBSDL_KW_LOCAL_SPACE); }
+fn kw_OVERRIDE_DISPLACE_DIRECTION() -> bool { return pbsdl_kw(PBSDL_KW_OVERRIDE_DISPLACE_DIRECTION); }
 
 /// Iterate active points and accumulate (displacement, emission) contributions.
 struct DisplaceResult {
@@ -110,7 +124,7 @@ fn accumulate_points(reference: vec3<f32>) -> DisplaceResult {
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
     var ts_n =  psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        kw_NORMALMAP(),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -138,7 +152,7 @@ fn vs_main(
 ) -> VertexOutput {
     let d = pd::get_draw(instance_index);
     let world_p_pre = d.model * vec4<f32>(pos.xyz, 1.0);
-    let use_world = uvu::kw_enabled(mat.WORLD_SPACE) || (!uvu::kw_enabled(mat.OBJECT_SPACE));
+    let use_world = !kw_LOCAL_SPACE();
     let reference_raw = select(pos.xyz, world_p_pre.xyz, use_world);
     let reference = pdist::snap_reference(reference_raw, mat._DistanceGridSize.xyz, mat._DistanceGridOffset.xyz);
     let acc = accumulate_points(reference);
@@ -146,7 +160,7 @@ fn vs_main(
     let direction = select(
         normalize(n.xyz),
         normalize(mat._DisplacementDirection.xyz),
-        uvu::kw_enabled(mat.OVERRIDE_DISPLACE_DIRECTION),
+        kw_OVERRIDE_DISPLACE_DIRECTION(),
     );
     let displaced_obj = pos.xyz + direction * acc.displace;
     let world_p = d.model * vec4<f32>(displaced_obj, 1.0);
@@ -194,7 +208,7 @@ fn shade(
 
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (kw_METALLICMAP()) {
         let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
         metallic = m.r;
         smoothness = m.a;
