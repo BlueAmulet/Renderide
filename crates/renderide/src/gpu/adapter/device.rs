@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use super::super::context::GpuError;
-use super::super::instance_limits::required_limits_for_adapter;
+use super::super::instance_setup::required_limits_for_adapter;
 use super::super::sync::mapped_buffer_health::{
     GpuMappedBufferHealth, validation_mentions_mapped_buffer_invalidation,
 };

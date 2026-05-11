@@ -1,6 +1,6 @@
 //! GPU device, adapter, swapchain, frame uniforms, and VR mirror blit.
 //!
-//! Layout: [`context`] ([`GpuContext`]), [`instance_limits`] ([`instance_flags_for_gpu_init`]),
+//! Layout: [`context`] ([`GpuContext`]), [`instance_setup`] ([`instance_flags_for_gpu_init`]),
 //! [`frame_globals`] ([`FrameGpuUniforms`]), [`frame_cpu_gpu_timing`] (debug HUD CPU/GPU intervals),
 //! [`present`] (surface acquire / clear helpers), [`vr_mirror`] (HMD eye -> staging -> window).
 
@@ -11,7 +11,7 @@ pub mod depth;
 pub mod display_blit;
 pub mod driver_thread;
 pub mod frame_bindings;
-mod instance_limits;
+mod instance_setup;
 pub mod limits;
 pub mod msaa_depth_resolve;
 pub mod output_depth_mode;
@@ -39,7 +39,7 @@ pub use frame_bindings::{
     REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
     empty_material_bind_group_layout, frame_bind_group_layout, frame_bind_group_layout_entries,
 };
-pub use instance_limits::{RENDERER_MAX_TEXTURE_DIMENSION_2D, instance_flags_for_gpu_init};
+pub use instance_setup::{RENDERER_MAX_TEXTURE_DIMENSION_2D, instance_flags_for_gpu_init};
 pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits};
 pub use msaa_depth_resolve::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
