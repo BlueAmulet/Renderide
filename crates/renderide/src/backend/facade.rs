@@ -327,6 +327,14 @@ impl RenderBackend {
         self.materials.material_registry()
     }
 
+    /// Drains finished background pipeline builds into the cache (no-op before GPU attach).
+    ///
+    /// The renderer's per-tick render entry calls this before per-view recording starts so
+    /// worker threads stay off the completion channel and pending/failed mutexes on the hot path.
+    pub fn drain_pipeline_build_completions(&self) {
+        self.materials.drain_pipeline_build_completions();
+    }
+
     /// Number of schedules passes in the compiled frame graph, or `0` if none.
     pub fn frame_graph_pass_count(&self) -> usize {
         self.graph_state.frame_graph_cache.pass_count()

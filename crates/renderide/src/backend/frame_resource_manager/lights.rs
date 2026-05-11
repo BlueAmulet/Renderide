@@ -1,9 +1,7 @@
 //! Light preparation and per-view light access for [`FrameResourceManager`].
 
 use crate::camera::ViewId;
-use crate::scene::{
-    ResolvedLight, SceneCoordinator, light_contributes, light_has_negative_contribution,
-};
+use crate::scene::{SceneCoordinator, light_contributes, light_has_negative_contribution};
 
 use super::super::light_gpu::{
     GpuLight, MAX_LIGHTS, gpu_light_from_resolved, order_lights_for_clustered_shading_in_place,
@@ -159,43 +157,24 @@ impl FrameResourceManager {
     }
 
     fn resolve_lights_for_space_ids(&mut self, scene: &SceneCoordinator, desc: FrameLightViewDesc) {
-        match self.light_space_ids_scratch.len() {
-            0 => {}
-            1 => {
-                profiling::scope!("render::prepare_lights::resolve_single_space");
-                scene.resolve_lights_for_render_context_into(
-                    self.light_space_ids_scratch[0],
-                    desc.render_context,
-                    desc.head_output_transform,
-                    &mut self.resolved_flatten_scratch,
-                );
-            }
-            _ => {
-                profiling::scope!("render::prepare_lights::resolve_parallel");
-                use rayon::prelude::*;
-                let per_space: Vec<Vec<ResolvedLight>> = self
-                    .light_space_ids_scratch
-                    .par_iter()
-                    .map(|&id| {
-                        let mut local = Vec::new();
-                        scene.resolve_lights_for_render_context_into(
-                            id,
-                            desc.render_context,
-                            desc.head_output_transform,
-                            &mut local,
-                        );
-                        local
-                    })
-                    .collect();
-                let total: usize = per_space.iter().map(Vec::len).sum();
-                {
-                    profiling::scope!("render::prepare_lights::flatten_parallel");
-                    self.resolved_flatten_scratch.reserve(total);
-                    for chunk in per_space {
-                        self.resolved_flatten_scratch.extend(chunk);
-                    }
-                }
-            }
+        if self.light_space_ids_scratch.is_empty() {
+            return;
+        }
+        profiling::scope!("render::prepare_lights::resolve_spaces");
+        // The host scenes we render typically have one or two active render spaces (main world
+        // plus an optional overlay), and each space's `resolve_lights_into` is short. Earlier
+        // versions of this function fanned the multi-space path out across `rayon::par_iter` with
+        // a fresh `Vec<Vec<ResolvedLight>>` per frame; the per-frame allocation and the rayon
+        // dispatch overhead both exceeded the work being parallelized. Serial append into the
+        // already-cleared `resolved_flatten_scratch` reuses last frame's allocation and lets the
+        // CPU plough through the spaces with no synchronization.
+        for &id in &self.light_space_ids_scratch {
+            scene.resolve_lights_for_render_context_into(
+                id,
+                desc.render_context,
+                desc.head_output_transform,
+                &mut self.resolved_flatten_scratch,
+            );
         }
     }
 }
