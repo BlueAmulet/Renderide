@@ -13,6 +13,7 @@
 #import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::core::uv as uvu
+#import renderide::material::variant_bits as vb
 
 struct DepthProjectionMaterial {
     _MainTex_ST: vec4<f32>,
@@ -24,11 +25,12 @@ struct DepthProjectionMaterial {
     _FarClip: f32,
     _DiscardThreshold: f32,
     _DiscardOffset: f32,
-    /// Unity `DEPTH_HUE` keyword; grayscale (`1 - r`) is the default when disabled.
-    DEPTH_HUE: f32,
+    _RenderideVariantBits: u32,
     _pad0: f32,
-    _pad1: vec2<f32>,
 }
+
+const DEPTHPROJECTION_KW_DEPTH_GRAYSCALE: u32 = 1u << 0u;
+const DEPTHPROJECTION_KW_DEPTH_HUE: u32 = 1u << 1u;
 
 @group(1) @binding(0) var<uniform> mat: DepthProjectionMaterial;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
@@ -37,6 +39,10 @@ struct DepthProjectionMaterial {
 @group(1) @binding(4) var _DepthTex_sampler: sampler;
 
 const PI: f32 = 3.14159265359;
+
+fn kw_DEPTH_HUE() -> bool {
+    return vb::enabled(mat._RenderideVariantBits, DEPTHPROJECTION_KW_DEPTH_HUE);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -65,7 +71,7 @@ fn rgb_to_hue(c: vec3<f32>) -> f32 {
 fn sample_depth_at(uv: vec2<f32>) -> f32 {
     let suv = uvu::apply_st(uv, mat._DepthTex_ST);
     let c = textureSampleLevel(_DepthTex, _DepthTex_sampler, suv, 0.0);
-    if (mat.DEPTH_HUE > 0.5) {
+    if (kw_DEPTH_HUE()) {
         return rgb_to_hue(c.rgb);
     }
     return 1.0 - c.r;

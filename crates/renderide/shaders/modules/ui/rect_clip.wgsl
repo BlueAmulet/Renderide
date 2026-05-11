@@ -1,4 +1,4 @@
-//! Shared UI rect clipping predicates.
+//! Shared rect clipping predicates used by UI and screen-space filter materials.
 
 #define_import_path renderide::ui::rect_clip
 
