@@ -2,6 +2,34 @@
 
 use std::sync::Arc;
 
+/// Copies cube face mip 0 from `source` into `destination`, including all six layers.
+pub(super) fn copy_cube_mip0(
+    encoder: &mut wgpu::CommandEncoder,
+    source: &wgpu::Texture,
+    destination: &wgpu::Texture,
+    face_size: u32,
+) {
+    encoder.copy_texture_to_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: source,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyTextureInfo {
+            texture: destination,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::Extent3d {
+            width: face_size,
+            height: face_size,
+            depth_or_array_layers: 6,
+        },
+    );
+}
+
 /// IBL cubemap format. Matches the analytic skybox bake; supports STORAGE_BINDING.
 pub(super) const IBL_CUBE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 

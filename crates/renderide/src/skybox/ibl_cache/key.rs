@@ -3,6 +3,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use crate::gpu::GpuLimits;
 use crate::skybox::specular::SkyboxIblSource;
 
 /// Compute workgroup edge used by every mip-0 producer and the GGX convolve.
@@ -11,6 +12,11 @@ const IBL_WORKGROUP_EDGE: u32 = 8;
 const IBL_BASE_SAMPLE_COUNT: u32 = 64;
 /// Cap on GGX importance sample count for the highest-roughness mips.
 const IBL_MAX_SAMPLES: u32 = 1024;
+
+/// Clamps the configured cube face size against the device texture limit.
+pub(crate) fn clamp_face_size(face_size: u32, limits: &GpuLimits) -> u32 {
+    face_size.min(limits.max_texture_dimension_2d()).max(1)
+}
 
 /// Identity for one IBL bake.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -166,7 +172,7 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
 }
 
 /// Hashes four `f32`s by their bit patterns.
-pub(super) fn hash_float4(values: &[f32; 4]) -> u64 {
+fn hash_float4(values: &[f32; 4]) -> u64 {
     let mut hasher = DefaultHasher::new();
     for v in values {
         v.to_bits().hash(&mut hasher);
@@ -201,4 +207,164 @@ pub(super) fn convolve_sample_count(mip_index: u32) -> u32 {
     }
     let exponent = (mip_index - 1).min(4);
     (IBL_BASE_SAMPLE_COUNT << exponent).min(IBL_MAX_SAMPLES)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-trip: applying the runtime parabolic LOD then the inverse returns the input.
+    #[test]
+    fn roughness_lod_round_trip() {
+        for i in 0..=20u32 {
+            let r = i as f32 / 20.0;
+            let lod = r * (2.0 - r);
+            let r_back = 1.0 - (1.0 - lod).max(0.0).sqrt();
+            assert!((r - r_back).abs() < 1e-6, "r={r} r_back={r_back}");
+        }
+    }
+
+    /// Mip count includes mip 0 through the one-texel mip.
+    #[test]
+    fn mip_levels_for_edge_includes_tail_mip() {
+        assert_eq!(mip_levels_for_edge(1), 1);
+        assert_eq!(mip_levels_for_edge(2), 2);
+        assert_eq!(mip_levels_for_edge(128), 8);
+        assert_eq!(mip_levels_for_edge(256), 9);
+    }
+
+    /// Source-LOD clamping exposes every generated source mip to filtered importance sampling.
+    #[test]
+    fn source_max_lod_tracks_last_generated_mip() {
+        assert_eq!(source_max_lod(0), 0.0);
+        assert_eq!(source_max_lod(1), 0.0);
+        assert_eq!(source_max_lod(8), 7.0);
+    }
+
+    /// Per-mip sample count clamps to the documented base/cap envelope.
+    #[test]
+    fn convolve_sample_count_envelope() {
+        assert_eq!(convolve_sample_count(0), 1);
+        assert_eq!(convolve_sample_count(1), 64);
+        assert_eq!(convolve_sample_count(2), 128);
+        assert_eq!(convolve_sample_count(3), 256);
+        assert_eq!(convolve_sample_count(4), 512);
+        assert_eq!(convolve_sample_count(5), 1024);
+        assert_eq!(convolve_sample_count(8), 1024);
+    }
+
+    /// Analytic key invariants: identity bits change the source hash.
+    #[test]
+    fn analytic_key_hash_changes_with_identity_fields() {
+        let a = SkyboxIblKey::Analytic {
+            material_asset_id: 1,
+            material_generation: 2,
+            route_hash: 3,
+            face_size: 256,
+        };
+        let b = SkyboxIblKey::Analytic {
+            material_asset_id: 1,
+            material_generation: 2,
+            route_hash: 3,
+            face_size: 128,
+        };
+        let c = SkyboxIblKey::Analytic {
+            material_asset_id: 1,
+            material_generation: 9,
+            route_hash: 3,
+            face_size: 256,
+        };
+        assert_ne!(a.source_hash(), b.source_hash());
+        assert_ne!(a.source_hash(), c.source_hash());
+    }
+
+    /// Cubemap key invariants: residency growth and face size resize both invalidate.
+    #[test]
+    fn cubemap_key_invalidates_on_residency_or_face_change() {
+        let a = cubemap_key(1, 1, 0, 1, 256);
+        let b = cubemap_key(1, 1, 0, 4, 256);
+        let c = cubemap_key(1, 1, 0, 1, 128);
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        let d = cubemap_key(1, 2, 0, 1, 256);
+        assert_ne!(a, d);
+    }
+
+    /// Cubemap allocation and material identity invalidate same-id sources.
+    #[test]
+    fn cubemap_key_invalidates_on_allocation_or_material_change() {
+        let base = cubemap_key(1, 1, 5, 1, 256);
+        let reallocated_same_upload_generation = cubemap_key(2, 1, 5, 1, 256);
+        let material_changed = cubemap_key(1, 1, 6, 1, 256);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
+    }
+
+    /// Equirect key invariants: FOV / ST hash inputs invalidate the bake.
+    #[test]
+    fn equirect_key_invalidates_on_param_changes() {
+        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let altered_fov = equirect_key(1, 3, 1, 5, [2.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let altered_st = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [2.0, 1.0, 0.0, 0.0]);
+        assert_ne!(base, altered_fov);
+        assert_ne!(base, altered_st);
+        let altered_content = equirect_key(1, 3, 2, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        assert_ne!(base, altered_content);
+    }
+
+    /// Equirect allocation and material identity invalidate same-id sources.
+    #[test]
+    fn equirect_key_invalidates_on_allocation_or_material_change() {
+        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let reallocated_same_upload_generation =
+            equirect_key(2, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let material_changed = equirect_key(1, 3, 1, 6, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
+    }
+
+    fn cubemap_key(
+        allocation_generation: u64,
+        content_generation: u64,
+        material_generation: u64,
+        mip_levels_resident: u32,
+        face_size: u32,
+    ) -> SkyboxIblKey {
+        SkyboxIblKey::Cubemap {
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id: 7,
+            allocation_generation,
+            mip_levels_resident,
+            content_generation,
+            storage_v_inverted: false,
+            face_size,
+        }
+    }
+
+    fn equirect_key(
+        allocation_generation: u64,
+        mip_levels_resident: u32,
+        content_generation: u64,
+        material_generation: u64,
+        fov: [f32; 4],
+        st: [f32; 4],
+    ) -> SkyboxIblKey {
+        SkyboxIblKey::Equirect {
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id: 9,
+            allocation_generation,
+            mip_levels_resident,
+            content_generation,
+            storage_v_inverted: false,
+            fov_hash: hash_float4(&fov),
+            st_hash: hash_float4(&st),
+            face_size: 256,
+        }
+    }
 }
