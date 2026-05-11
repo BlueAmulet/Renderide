@@ -268,3 +268,24 @@ fn pbsmultiuv_decodes_keywords_from_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn pbsrimspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsrimspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+        ],
+        &[
+            ("PBSRIMSPECULAR_KW_ALBEDOTEX", 0),
+            ("PBSRIMSPECULAR_KW_EMISSIONTEX", 1),
+            ("PBSRIMSPECULAR_KW_NORMALMAP", 2),
+            ("PBSRIMSPECULAR_KW_OCCLUSION", 3),
+            ("PBSRIMSPECULAR_KW_SPECULARMAP", 4),
+        ],
+    )
+}

@@ -395,20 +395,14 @@ fn pbs_rim_shaders_preserve_unity_texture_keywords() -> io::Result<()> {
         forbidden_unity_fallback_mul: &'a [&'a str],
     }
 
-    let cases = [
-        Case {
-            file_name: "pbsrim.wgsl",
-            workflow_keyword: "_METALLICMAP",
-            workflow_texture: "_MetallicMap",
-            forbidden_unity_fallback_mul: &["mat._Metallic * mg", "mat._Glossiness * mg"],
-        },
-        Case {
-            file_name: "pbsrimspecular.wgsl",
-            workflow_keyword: "_SPECULARMAP",
-            workflow_texture: "_SpecularMap",
-            forbidden_unity_fallback_mul: &["mat._SpecularColor * spec_s"],
-        },
-    ];
+    // `pbsrimspecular.wgsl` decodes Unity keywords from `_RenderideVariantBits` instead of
+    // f32 keyword fields; its parity assertions live in `pbs_variant_bits.rs`.
+    let cases = [Case {
+        file_name: "pbsrim.wgsl",
+        workflow_keyword: "_METALLICMAP",
+        workflow_texture: "_MetallicMap",
+        forbidden_unity_fallback_mul: &["mat._Metallic * mg", "mat._Glossiness * mg"],
+    }];
 
     for case in cases {
         let src = material_source(case.file_name)?;
