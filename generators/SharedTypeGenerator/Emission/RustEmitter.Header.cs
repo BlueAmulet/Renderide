@@ -26,6 +26,8 @@ public partial class RustEmitter
         _w.Line("    clippy::match_wildcard_for_single_variants,");
         _w.Line("    clippy::manual_let_else,");
         _w.Line("    clippy::unnested_or_patterns,");
+        _w.Line("    clippy::empty_structs_with_brackets,");
+        _w.Line("    clippy::branches_sharing_code,");
         _w.Line("    reason = \"generated code: lints enforced on hand-written code do not apply here\"");
         _w.Line(")]");
         _w.BlankLine();

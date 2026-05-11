@@ -12,6 +12,8 @@
     clippy::match_wildcard_for_single_variants,
     clippy::manual_let_else,
     clippy::unnested_or_patterns,
+    clippy::empty_structs_with_brackets,
+    clippy::branches_sharing_code,
     reason = "generated code: lints enforced on hand-written code do not apply here"
 )]
 
