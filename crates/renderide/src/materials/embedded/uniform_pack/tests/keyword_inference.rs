@@ -65,29 +65,6 @@ fn set_float_property(
     );
 }
 
-fn assert_xiexe_alpha_keywords(
-    store: &MaterialPropertyStore,
-    material_id: i32,
-    ids: &StemEmbeddedPropertyIds,
-    cutout: bool,
-    alpha_blend: bool,
-    transparent: bool,
-) {
-    let expected = |enabled| Some(if enabled { 1.0 } else { 0.0 });
-    assert_eq!(
-        inferred_keyword_float_f32("Cutout", store, lookup(material_id), ids),
-        expected(cutout)
-    );
-    assert_eq!(
-        inferred_keyword_float_f32("AlphaBlend", store, lookup(material_id), ids),
-        expected(alpha_blend)
-    );
-    assert_eq!(
-        inferred_keyword_float_f32("Transparent", store, lookup(material_id), ids),
-        expected(transparent)
-    );
-}
-
 mod alpha_blend;
 mod defaults_misc;
 mod texture_keywords;
