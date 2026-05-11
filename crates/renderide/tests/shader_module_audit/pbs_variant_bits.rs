@@ -139,3 +139,32 @@ fn pbslerpspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn pbslerp_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbslerp.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_DUALSIDED",
+            "_EMISSIONTEX",
+            "_LERPTEX",
+            "_METALLICMAP",
+            "_MULTI_VALUES",
+            "_NORMALMAP",
+            "_OCCLUSION",
+        ],
+        &[
+            ("PBSLERP_KW_ALBEDOTEX", 0),
+            ("PBSLERP_KW_ALPHACLIP", 1),
+            ("PBSLERP_KW_DUALSIDED", 2),
+            ("PBSLERP_KW_EMISSIONTEX", 3),
+            ("PBSLERP_KW_LERPTEX", 4),
+            ("PBSLERP_KW_METALLICMAP", 5),
+            ("PBSLERP_KW_MULTI_VALUES", 6),
+            ("PBSLERP_KW_NORMALMAP", 7),
+            ("PBSLERP_KW_OCCLUSION", 8),
+        ],
+    )
+}
