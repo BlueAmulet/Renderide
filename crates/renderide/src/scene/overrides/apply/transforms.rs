@@ -3,9 +3,9 @@
 use crate::ipc::SharedMemoryAccessor;
 use crate::scene::dense_update::swap_remove_dense_indices;
 use crate::scene::error::SceneError;
-use crate::scene::render_overrides::types::RenderTransformOverrideEntry;
+use crate::scene::overrides::types::RenderTransformOverrideEntry;
 use crate::scene::render_space::RenderSpaceState;
-use crate::scene::transforms_apply::TransformRemovalEvent;
+use crate::scene::transforms::TransformRemovalEvent;
 use crate::shared::{
     RENDER_TRANSFORM_OVERRIDE_STATE_HOST_ROW_BYTES, RenderTransformOverrideState,
     RenderTransformOverridesUpdate,

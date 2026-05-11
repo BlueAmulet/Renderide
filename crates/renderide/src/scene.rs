@@ -40,9 +40,9 @@
 //!
 //! ## Layout
 //!
-//! - **`coordinator/`** -- [`SceneCoordinator`] registry and [`FrameSubmitData`] orchestration; world-matrix helpers for render context / overlays live alongside in `world_queries`.
-//! - **IPC apply** -- [`camera_apply`], [`transforms_apply`], [`mesh_apply`], [`lights`].
-//! - **`render_overrides/`** -- host transform/material override mirror (`types`, `space_impl`, `apply`).
+//! - **`coordinator/`** -- [`SceneCoordinator`] registry and [`FrameSubmitData`] orchestration; world-matrix helpers for render context / overlays live alongside in `queries`.
+//! - **IPC apply** -- [`camera`], [`transforms`], [`meshes`], [`lights`].
+//! - **`overrides/`** -- host transform/material override mirror (`types`, `space_impl`, `apply`).
 //!
 //! ## Reflection probes
 //!
@@ -51,30 +51,28 @@
 //! [`ComputeResult::Scheduled`](crate::shared::ComputeResult).
 
 mod blit_to_display;
-mod camera_apply;
+mod camera;
 mod coordinator;
 mod dense_update;
 mod error;
 mod ids;
-mod layer_apply;
+mod layer;
 pub mod lights;
 mod math;
-mod mesh_apply;
-mod mesh_material_row;
-mod mesh_renderable;
+mod meshes;
+mod overrides;
 mod pose;
 mod reflection_probe;
-mod render_overrides;
 mod render_space;
-mod transforms_apply;
+mod transforms;
 mod world;
 
-pub use camera_apply::CameraRenderableEntry;
+pub use camera::CameraRenderableEntry;
 pub use coordinator::{SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
 pub use ids::RenderSpaceId;
 pub use lights::{ResolvedLight, light_contributes, light_has_negative_contribution};
 pub use math::render_transform_to_matrix;
-pub use mesh_renderable::{
+pub use meshes::types::{
     MeshMaterialSlot, MeshRendererInstanceId, SkinnedMeshRenderer, StaticMeshRenderer,
 };
 pub(crate) use reflection_probe::changed_probe_completion;

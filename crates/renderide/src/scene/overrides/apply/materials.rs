@@ -3,11 +3,11 @@
 use crate::ipc::SharedMemoryAccessor;
 use crate::scene::dense_update::swap_remove_dense_indices;
 use crate::scene::error::SceneError;
-use crate::scene::render_overrides::types::{
+use crate::scene::overrides::types::{
     MaterialOverrideBinding, RenderMaterialOverrideEntry, decode_packed_mesh_renderer_target,
 };
 use crate::scene::render_space::RenderSpaceState;
-use crate::scene::transforms_apply::TransformRemovalEvent;
+use crate::scene::transforms::TransformRemovalEvent;
 use crate::shared::{
     MaterialOverrideState, RENDER_MATERIAL_OVERRIDE_STATE_HOST_ROW_BYTES,
     RenderMaterialOverrideState, RenderMaterialOverridesUpdate,

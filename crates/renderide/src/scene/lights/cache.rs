@@ -21,7 +21,7 @@ use hashbrown::HashMap;
 use glam::{Mat4, Vec3};
 
 use crate::color_space::srgb_vec3_to_linear;
-use crate::scene::transforms_apply::TransformRemovalEvent;
+use crate::scene::transforms::TransformRemovalEvent;
 use crate::shared::{LightData, LightsBufferRendererState};
 
 use super::types::{CachedLight, ResolvedLight};

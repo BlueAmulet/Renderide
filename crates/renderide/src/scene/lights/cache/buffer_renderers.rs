@@ -4,7 +4,7 @@
 //! `global_unique_id` with one [`super::BufferRenderer`] per host renderable; per-space output
 //! is fanned out by [`super::LightCache::rebuild_space_vec`].
 
-use crate::scene::transforms_apply::TransformRemovalEvent;
+use crate::scene::transforms::TransformRemovalEvent;
 use crate::scene::world::fixup_transform_id;
 use crate::shared::LightsBufferRendererState;
 

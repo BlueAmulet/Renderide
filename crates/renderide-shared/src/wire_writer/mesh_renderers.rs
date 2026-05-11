@@ -1,5 +1,5 @@
 //! Host-side encoders for the three SHM regions consumed by
-//! `crates/renderide/src/scene/mesh_apply.rs::apply_mesh_renderables_update`:
+//! `crates/renderide/src/scene/meshes.rs::apply_mesh_renderables_update`:
 //!
 //! 1. [`encode_additions`]: a flat list of `i32 node_id` values terminated by `-1`. Each entry
 //!    pushes a new [`crate::shared::MeshRendererState`]-targeted slot bound to `node_id`.
@@ -7,7 +7,7 @@
 //!    with `renderable_index = -1`.
 //! 3. [`encode_packed_material_ids`]: a flat list of `i32` material asset ids consumed in
 //!    `mesh_states` row order, one per material slot (see
-//!    `crates/renderide/src/scene/mesh_material_row.rs`).
+//!    `crates/renderide/src/scene/meshes/types.rs`).
 
 use crate::packing::memory_packable::MemoryPackable;
 use crate::packing::memory_packer::MemoryPacker;

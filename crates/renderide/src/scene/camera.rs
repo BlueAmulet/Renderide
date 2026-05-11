@@ -9,7 +9,7 @@ use super::dense_update::{
 };
 use super::error::SceneError;
 use super::render_space::RenderSpaceState;
-use super::transforms_apply::TransformRemovalEvent;
+use super::transforms::TransformRemovalEvent;
 use super::world::fixup_transform_id;
 
 /// Owned per-space camera-update payload extracted from shared memory.
@@ -193,7 +193,7 @@ mod tests {
     use super::*;
     use crate::scene::ids::RenderSpaceId;
     use crate::scene::render_space::RenderSpaceState;
-    use crate::scene::transforms_apply::TransformRemovalEvent;
+    use crate::scene::transforms::TransformRemovalEvent;
 
     fn space_with_camera(
         transform_id: i32,

@@ -24,32 +24,32 @@ use super::super::blit_to_display::{
     ExtractedBlitToDisplayUpdate, apply_blit_to_display_update_extracted,
     extract_blit_to_display_update,
 };
-use super::super::camera_apply::{
+use super::super::camera::{
     ExtractedCameraRenderablesUpdate, extract_camera_renderables_update,
     fixup_cameras_for_transform_removals,
 };
 use super::super::error::SceneError;
 use super::super::ids::RenderSpaceId;
-use super::super::layer_apply::{
+use super::super::layer::{
     ExtractedLayerUpdate, apply_layer_update_extracted, extract_layer_update,
 };
-use super::super::mesh_apply::{
+use super::super::meshes::{
     ExtractedMeshRenderablesUpdate, ExtractedSkinnedMeshRenderablesUpdate,
     apply_mesh_renderables_update_extracted, apply_skinned_mesh_renderables_update_extracted,
     extract_mesh_renderables_update, extract_skinned_mesh_renderables_update,
     fixup_static_meshes_for_transform_removals,
 };
-use super::super::reflection_probe::{
-    ExtractedReflectionProbeRenderablesUpdate, apply_reflection_probe_renderables_update_extracted,
-    extract_reflection_probe_renderables_update, fixup_reflection_probes_for_transform_removals,
-};
-use super::super::render_overrides::{
+use super::super::overrides::{
     ExtractedRenderMaterialOverridesUpdate, ExtractedRenderTransformOverridesUpdate,
     apply_render_material_overrides_update_extracted,
     apply_render_transform_overrides_update_extracted, extract_render_material_overrides_update,
     extract_render_transform_overrides_update,
 };
-use super::super::transforms_apply::{
+use super::super::reflection_probe::{
+    ExtractedReflectionProbeRenderablesUpdate, apply_reflection_probe_renderables_update_extracted,
+    extract_reflection_probe_renderables_update, fixup_reflection_probes_for_transform_removals,
+};
+use super::super::transforms::{
     ExtractedTransformsUpdate, TransformRemovalEvent, apply_transforms_update_extracted,
     extract_transforms_update,
 };
@@ -62,7 +62,7 @@ use super::super::transforms_apply::{
 /// for this space and can skip the lift/reinsert pair entirely. Common on ticks where only
 /// camera matrices changed.
 #[inline]
-pub fn is_extracted_empty(e: &ExtractedRenderSpaceUpdate) -> bool {
+pub(in crate::scene::coordinator) fn is_extracted_empty(e: &ExtractedRenderSpaceUpdate) -> bool {
     e.cameras.is_none()
         && e.reflection_probes.is_none()
         && e.transforms.is_none()
@@ -79,7 +79,7 @@ pub fn is_extracted_empty(e: &ExtractedRenderSpaceUpdate) -> bool {
 ///
 /// Each `Option<...>` field mirrors the corresponding `Option<...>` on [`RenderSpaceUpdate`] and is
 /// `None` when the host omitted that update kind for this tick.
-pub struct ExtractedRenderSpaceUpdate {
+pub(in crate::scene::coordinator) struct ExtractedRenderSpaceUpdate {
     /// Render space identity for this chunk (mirrors [`RenderSpaceUpdate::id`]).
     pub space_id: RenderSpaceId,
     /// Camera-renderable update payload.
@@ -107,7 +107,7 @@ pub struct ExtractedRenderSpaceUpdate {
 /// Light updates are intentionally **not** extracted here: their apply step mutates the shared
 /// [`crate::scene::LightCache`] and is handled in a separate serial pass (see
 /// [`light_updates_view`]).
-pub fn extract_render_space_update(
+pub(in crate::scene::coordinator) fn extract_render_space_update(
     shm: &mut SharedMemoryAccessor,
     update: &RenderSpaceUpdate,
     frame_index: i32,
@@ -175,7 +175,7 @@ pub fn extract_render_space_update(
 /// Bundles the per-space [`crate::scene::RenderSpaceState`] and
 /// [`crate::scene::WorldTransformCache`] alongside a scratch buffer for transform removal events
 /// (cleared at the start of each call).
-pub struct PerSpaceApplyInputs<'a> {
+pub(in crate::scene::coordinator) struct PerSpaceApplyInputs<'a> {
     /// Per-space scene state (cameras, mesh renderables, layer assignments, overrides).
     pub space: &'a mut crate::scene::render_space::RenderSpaceState,
     /// Per-space world matrix cache (resized + invalidated to match [`Self::space`]).
@@ -191,7 +191,7 @@ pub struct PerSpaceApplyInputs<'a> {
 ///
 /// Safe to call concurrently across distinct render spaces because all mutated state is
 /// reachable only through the per-space [`PerSpaceApplyInputs`] borrow.
-pub fn apply_extracted_render_space_update(
+pub(in crate::scene::coordinator) fn apply_extracted_render_space_update(
     extracted: &ExtractedRenderSpaceUpdate,
     inputs: PerSpaceApplyInputs<'_>,
 ) -> bool {
@@ -217,7 +217,7 @@ pub fn apply_extracted_render_space_update(
     // applying the extracted camera update (whose addition indices are post-swap from the host).
     fixup_cameras_for_transform_removals(space, transform_removals);
     if let Some(ref cu) = extracted.cameras {
-        super::super::camera_apply::apply_camera_renderables_update_extracted(space, cu);
+        super::super::camera::apply_camera_renderables_update_extracted(space, cu);
     }
     fixup_reflection_probes_for_transform_removals(space, transform_removals);
     if let Some(ref rpu) = extracted.reflection_probes {
@@ -235,14 +235,14 @@ pub fn apply_extracted_render_space_update(
     }
     {
         profiling::scope!("scene::layers");
-        super::super::layer_apply::fixup_layer_assignments_for_transform_removals(
+        super::super::layer::fixup_layer_assignments_for_transform_removals(
             space,
             transform_removals,
         );
         if let Some(ref lu) = extracted.layers {
             apply_layer_update_extracted(space, lu);
         }
-        super::super::layer_apply::resolve_mesh_layers_from_assignments(space);
+        super::super::layer::resolve_mesh_layers_from_assignments(space);
     };
     if let Some(ref rtu) = extracted.transform_overrides {
         apply_render_transform_overrides_update_extracted(space, rtu, transform_removals);
@@ -260,7 +260,7 @@ pub fn apply_extracted_render_space_update(
 ///
 /// Carried alongside the parallel-applied per-space payloads so the post-parallel light pass can
 /// re-walk the host updates without re-scanning [`crate::shared::FrameSubmitData::render_spaces`].
-pub struct LightUpdateView<'a> {
+pub(in crate::scene::coordinator) struct LightUpdateView<'a> {
     /// Render space identity (mirrors [`RenderSpaceUpdate::id`]).
     pub space_id: i32,
     /// Optional [`crate::shared::LightRenderablesUpdate`] payload (regular [`crate::shared::LightState`] rows).
@@ -270,7 +270,9 @@ pub struct LightUpdateView<'a> {
 }
 
 /// Borrows the still-serial light update fields from a [`RenderSpaceUpdate`].
-pub fn light_updates_view(update: &RenderSpaceUpdate) -> LightUpdateView<'_> {
+pub(in crate::scene::coordinator) fn light_updates_view(
+    update: &RenderSpaceUpdate,
+) -> LightUpdateView<'_> {
     LightUpdateView {
         space_id: update.id,
         lights_update: update.lights_update.as_ref(),

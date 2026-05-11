@@ -2,7 +2,7 @@
 //!
 //! Each row is a fixed 44 bytes: `i32 transform_id` + [`crate::shared::RenderTransform`]
 //! (40 bytes; pack order `position -> scale -> rotation` per the renderer-side parser at
-//! `crates/renderide/src/scene/transforms_apply.rs`).
+//! `crates/renderide/src/scene/transforms.rs`).
 
 use crate::shared::{RENDER_TRANSFORM_HOST_ROW_BYTES, RenderTransform};
 

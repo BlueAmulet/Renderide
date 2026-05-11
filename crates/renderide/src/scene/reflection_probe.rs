@@ -11,7 +11,7 @@ use crate::shared::{
 use super::dense_update::{push_dense_additions, swap_remove_dense_indices};
 use super::error::SceneError;
 use super::render_space::RenderSpaceState;
-use super::transforms_apply::TransformRemovalEvent;
+use super::transforms::TransformRemovalEvent;
 use super::world::fixup_transform_id;
 
 /// One dense reflection-probe renderable entry inside a render space.

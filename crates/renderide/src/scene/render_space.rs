@@ -1,7 +1,7 @@
 //! Per-render-space state mirrored from [`crate::shared::RenderSpaceUpdate`].
 
 use super::blit_to_display::BlitToDisplayEntry;
-use super::render_overrides::{RenderMaterialOverrideEntry, RenderTransformOverrideEntry};
+use super::overrides::{RenderMaterialOverrideEntry, RenderTransformOverrideEntry};
 use crate::shared::{
     LayerType, ReflectionProbeChangeRenderTask, RenderSH2, RenderSpaceUpdate, RenderTransform,
     RenderingContext,
@@ -9,9 +9,9 @@ use crate::shared::{
 
 use hashbrown::HashMap;
 
-use super::camera_apply::CameraRenderableEntry;
+use super::camera::CameraRenderableEntry;
 use super::ids::RenderSpaceId;
-use super::mesh_renderable::{MeshRendererInstanceId, SkinnedMeshRenderer, StaticMeshRenderer};
+use super::meshes::types::{MeshRendererInstanceId, SkinnedMeshRenderer, StaticMeshRenderer};
 use super::reflection_probe::ReflectionProbeEntry;
 
 /// One host layer component / assignment anchored to a transform node.

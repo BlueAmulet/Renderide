@@ -1,7 +1,7 @@
 //! Owns all [`RenderSpaceState`](super::render_space::RenderSpaceState) instances and applies per-frame host data.
 
-pub mod parallel_apply;
-mod world_queries;
+mod apply;
+mod queries;
 
 use hashbrown::HashMap;
 use std::collections::HashSet;
@@ -22,12 +22,12 @@ use super::lights::{
 };
 #[cfg(test)]
 use super::math::multiply_root;
-use super::render_overrides::MeshRendererOverrideTarget;
+use super::overrides::MeshRendererOverrideTarget;
 use super::render_space::{RenderSpaceState, RenderSpaceView};
-use super::transforms_apply::TransformRemovalEvent;
+use super::transforms::TransformRemovalEvent;
 use super::world::{WorldTransformCache, compute_world_matrices_for_space, ensure_cache_shapes};
 
-use parallel_apply::{ExtractedRenderSpaceUpdate, extract_render_space_update, light_updates_view};
+use apply::{ExtractedRenderSpaceUpdate, extract_render_space_update, light_updates_view};
 
 const PRIMARY_DESKTOP_DISPLAY_INDEX: i16 = 0;
 
@@ -104,23 +104,23 @@ pub struct SceneCoordinator {
     /// [`Self::world_caches`] for the parallel apply. Drained in place after the loop so the
     /// allocation persists across frames; previously this was a fresh
     /// `Vec::with_capacity(extracted_per_space.len())` per frame.
-    pub(super) apply_work_scratch: Vec<ApplyWorkSlot>,
+    apply_work_scratch: Vec<ApplyWorkSlot>,
 }
 
 /// One per-space work slot held in [`SceneCoordinator::apply_work_scratch`].
-pub(super) struct ApplyWorkSlot {
+struct ApplyWorkSlot {
     /// Render space identity for reinsert and dirty-cache tracking.
-    pub(super) id: RenderSpaceId,
+    id: RenderSpaceId,
     /// Lifted per-space scene state.
-    pub(super) space: RenderSpaceState,
+    space: RenderSpaceState,
     /// Lifted per-space world transform cache.
-    pub(super) cache: WorldTransformCache,
+    cache: WorldTransformCache,
     /// Pre-extracted host update payload to apply.
-    pub(super) extracted: ExtractedRenderSpaceUpdate,
+    extracted: ExtractedRenderSpaceUpdate,
     /// Reused transform-removal side buffer for this work item.
-    pub(super) removal_events: Vec<TransformRemovalEvent>,
+    removal_events: Vec<TransformRemovalEvent>,
     /// Whether applying this slot dirtied the world transform cache.
-    pub(super) world_dirty: bool,
+    world_dirty: bool,
 }
 
 /// Scene changes observed while applying one host frame submission.
