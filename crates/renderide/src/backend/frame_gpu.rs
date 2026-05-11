@@ -21,18 +21,18 @@ use crate::gpu::{GpuLimits, MAX_LIGHTS, frame_bind_group_layout};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::frame_gpu_error::FrameGpuInitError;
-pub use crate::gpu::{
+pub(crate) use crate::gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT,
     REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
     REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
 };
-pub use empty_material::EmptyMaterialBindGroup;
+pub(crate) use empty_material::EmptyMaterialBindGroup;
 use ibl_dfg::create_ibl_dfg_lut;
-pub use reflection_probe_specular::ReflectionProbeSpecularResources;
+pub(crate) use reflection_probe_specular::ReflectionProbeSpecularResources;
 use reflection_probe_specular::{
     ReflectionProbeSpecularBindGroupResources, create_reflection_probe_specular_fallback,
 };
-pub use scene_snapshot::FrameSceneSnapshotTextureViews;
+pub(crate) use scene_snapshot::FrameSceneSnapshotTextureViews;
 use scene_snapshot::{
     DEFAULT_SCENE_COLOR_FORMAT, SceneSnapshotKind, SceneSnapshotLayout, SceneSnapshotSet,
 };

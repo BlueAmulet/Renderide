@@ -16,7 +16,6 @@ use logger::LogLevel;
 
 use crate::diagnostics::crash_context;
 use crate::frontend::input::{CursorOutputTracking, WindowInputAccumulator};
-use crate::gpu::DisplayBlitResources;
 use crate::runtime::RendererRuntime;
 use crate::xr::OpenxrHaptics;
 
@@ -63,8 +62,6 @@ pub(crate) struct AppDriver {
     pub(in crate::app::driver) shutdown_watchdog_pause: Option<crate::diagnostics::WatchdogPause>,
     pub(in crate::app::driver) xr_input_cache: XrInputCache,
     pub(in crate::app::driver) xr_haptics: OpenxrHaptics,
-    /// Lazy GPU resources for the host `BlitToDisplay` desktop pass; created on first use.
-    pub(in crate::app::driver) display_blit: DisplayBlitResources,
 }
 
 impl AppDriver {
@@ -93,7 +90,6 @@ impl AppDriver {
             shutdown_watchdog_pause: None,
             xr_input_cache: XrInputCache::default(),
             xr_haptics: OpenxrHaptics::default(),
-            display_blit: DisplayBlitResources::new(),
         }
     }
 

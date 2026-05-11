@@ -1,12 +1,14 @@
 //! Render result presentation and display-blit dispatch for the app driver.
 
+use crate::backend::RenderBackend;
+use crate::diagnostics::DebugHudEncodeError;
 use crate::gpu::GpuContext;
-use crate::gpu::display_blit::DisplayBlitSource;
 use crate::present::{
     SurfaceAcquireTrace, SurfaceSubmitTrace, present_clear_frame_overlay_traced,
     present_clear_frame_overlay_traced_with_color,
 };
 use crate::runtime::RendererRuntime;
+use crate::runtime::display::DisplayBlitSource;
 use crate::shared::BlitToDisplayState;
 use crate::xr::OpenxrFrameTick;
 
@@ -122,8 +124,7 @@ impl AppDriver {
             }
             return;
         };
-        let runtime = &mut self.runtime;
-        let blit = &mut self.display_blit;
+        let (blit, backend) = self.runtime.display_blit_and_backend_mut();
         let source = DisplayBlitSource {
             view: view_arc.as_ref(),
             width: tex_w,
@@ -133,7 +134,7 @@ impl AppDriver {
             background_color: state.background_color,
         };
         if let Err(error) = blit.present_blit_to_surface(gpu, source, |encoder, view, gpu| {
-            encode_debug_hud_overlay(runtime, gpu, encoder, view)
+            encode_debug_hud_overlay_via_backend(backend, gpu, encoder, view)
         }) {
             logger::debug!("display blit failed: {error:?}");
         }
@@ -189,8 +190,24 @@ fn encode_debug_hud_overlay(
     gpu: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
-) -> Result<(), crate::diagnostics::DebugHudEncodeError> {
+) -> Result<(), DebugHudEncodeError> {
     runtime.encode_debug_hud_overlay_on_surface(gpu, encoder, view)
+}
+
+fn encode_debug_hud_overlay_via_backend(
+    backend: &mut RenderBackend,
+    gpu: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+) -> Result<(), DebugHudEncodeError> {
+    if !backend.debug_hud_has_visible_content() {
+        backend.clear_debug_hud_input_capture();
+        return Ok(());
+    }
+    let device = gpu.device().as_ref();
+    let extent = gpu.surface_extent_px();
+    let queue = gpu.queue().as_ref();
+    backend.encode_debug_hud_overlay(device, queue, encoder, view, extent)
 }
 
 /// Tests bit `bit_index` (zero-based) on a [`BlitToDisplayState::flags`] byte.

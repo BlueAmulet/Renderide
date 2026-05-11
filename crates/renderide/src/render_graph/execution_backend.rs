@@ -20,7 +20,7 @@ use crate::materials::MaterialSystem;
 use crate::mesh_deform::{
     GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines, PaddedPerDrawUniforms, SkinCacheKey,
 };
-use crate::occlusion::OcclusionSystem;
+use crate::occlusion::OcclusionGraphHook;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::render_graph::upload_arena::PersistentUploadArena;
 
@@ -170,7 +170,7 @@ pub trait GraphAssetResources: Send + Sync {
 /// Disjoint graph-frame parameter slices borrowed from the backend.
 pub struct GraphFrameParamsSplit<'a> {
     /// Hi-Z and temporal occlusion state.
-    pub occlusion: &'a OcclusionSystem,
+    pub occlusion: &'a dyn OcclusionGraphHook,
     /// Frame-global and per-view bind resources.
     pub frame_resources: &'a dyn GraphFrameResources,
     /// Material registry and caches.
@@ -226,9 +226,9 @@ pub trait GraphExecutionBackend {
     /// Shared asset resources.
     fn asset_resources(&self) -> &dyn GraphAssetResources;
     /// Shared occlusion state.
-    fn occlusion(&self) -> &OcclusionSystem;
+    fn occlusion(&self) -> &dyn OcclusionGraphHook;
     /// Mutable occlusion state.
-    fn occlusion_mut(&mut self) -> &mut OcclusionSystem;
+    fn occlusion_mut(&mut self) -> &mut dyn OcclusionGraphHook;
     /// Optional mesh preprocess pipelines.
     fn mesh_preprocess(&self) -> Option<&MeshPreprocessPipelines>;
     /// Optional read-only skin cache.

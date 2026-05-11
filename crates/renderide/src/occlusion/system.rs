@@ -244,6 +244,40 @@ impl OcclusionSystem {
     }
 }
 
+impl crate::occlusion::OcclusionGraphHook for OcclusionSystem {
+    fn ensure_hi_z_state(&self, view: ViewId) -> Arc<Mutex<HiZGpuState>> {
+        OcclusionSystem::ensure_hi_z_state(self, view)
+    }
+
+    fn encode_hi_z_build_pass(
+        &self,
+        record: HiZBuildRecord<'_>,
+        state_slot: &Mutex<HiZGpuState>,
+        input: HiZBuildInput<'_>,
+        profiler: Option<&crate::profiling::GpuProfilerHandle>,
+    ) {
+        OcclusionSystem::encode_hi_z_build_pass(self, record, state_slot, input, profiler);
+    }
+
+    fn capture_hi_z_temporal_for_next_frame(
+        &self,
+        scene: &SceneCoordinator,
+        prev_cull: WorldMeshCullProjParams,
+        viewport_px: (u32, u32),
+        state_slot: &Mutex<HiZGpuState>,
+        explicit_world_to_view: Option<Mat4>,
+    ) {
+        OcclusionSystem::capture_hi_z_temporal_for_next_frame(
+            self,
+            scene,
+            prev_cull,
+            viewport_px,
+            state_slot,
+            explicit_world_to_view,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

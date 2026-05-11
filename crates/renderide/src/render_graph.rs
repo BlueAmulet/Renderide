@@ -88,6 +88,6 @@ pub(crate) use execution_backend::{
     GraphAssetResources, GraphExecutionBackend, GraphFrameResources,
 };
 pub(crate) use frame_params::FrameViewClear;
-pub use history::{HistoryRegistry, HistoryRegistryError, HistoryTextureMipViews};
+pub(crate) use history::{HistoryRegistry, HistoryRegistryError, HistoryTextureMipViews};
 pub(crate) use pool::TransientPool;
 pub(crate) use resources::HistorySlotId;
