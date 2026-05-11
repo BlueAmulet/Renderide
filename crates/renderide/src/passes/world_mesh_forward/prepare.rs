@@ -191,6 +191,7 @@ pub(crate) fn prepare_world_mesh_forward_frame(
     };
 
     let precomputed_batches = precompute_and_assign_material_batches(
+        frame,
         &encode_refs,
         uploads,
         &draws,
@@ -269,6 +270,7 @@ fn pack_forward_draws_for_view(
 }
 
 fn precompute_and_assign_material_batches(
+    frame: &GraphPassFrame<'_>,
     encode_refs: &WorldMeshForwardEncodeRefs<'_>,
     uploads: GraphUploadSink<'_>,
     draws: &[WorldMeshDrawItem],
@@ -278,17 +280,29 @@ fn precompute_and_assign_material_batches(
 ) -> Vec<MaterialBatchPacket> {
     // Resolve per-batch pipelines and @group(1) bind groups in parallel (Filament phase-A).
     // Results live on `PreparedWorldMeshForwardFrame`; both raster sub-passes consume them.
-    let precomputed_batches = {
+    let mut precomputed_batches = Vec::new();
+    let mut resolve = |boundaries_scratch: &mut Vec<(usize, usize)>| {
         profiling::scope!("world_mesh::prepare_frame::precompute_material_batches");
-        precompute_material_resolve_batches(
+        precomputed_batches = precompute_material_resolve_batches(
             encode_refs,
             uploads,
             draws,
             pipeline.shader_perm,
             &pipeline.pass_desc,
             offscreen_write_rt,
-        )
+            boundaries_scratch,
+        );
     };
+    if !frame
+        .shared
+        .frame_resources
+        .with_per_view_material_batch_scratch(frame.view.view_id, &mut resolve)
+    {
+        // Scratch slot not provisioned yet; fall back to a one-shot boundary buffer so the
+        // first frame for a brand-new view still produces packets.
+        let mut fallback = Vec::new();
+        resolve(&mut fallback);
+    }
     assign_material_packet_indices(plan, &precomputed_batches);
     precomputed_batches
 }

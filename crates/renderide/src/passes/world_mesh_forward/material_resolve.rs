@@ -20,6 +20,7 @@ pub(super) fn precompute_material_resolve_batches(
     shader_perm: ShaderPermutation,
     pass_desc: &MaterialPipelineDesc,
     offscreen_write_render_texture_asset_id: Option<i32>,
+    boundaries_scratch: &mut Vec<(usize, usize)>,
 ) -> Vec<MaterialBatchPacket> {
     MaterialDrawResolver::new(
         encode,
@@ -28,5 +29,5 @@ pub(super) fn precompute_material_resolve_batches(
         shader_perm,
         offscreen_write_render_texture_asset_id,
     )
-    .resolve_batches(draws)
+    .resolve_batches(draws, boundaries_scratch)
 }

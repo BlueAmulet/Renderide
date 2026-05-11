@@ -58,4 +58,8 @@ pub struct PerViewPerDrawScratch {
     pub uniforms: Vec<PaddedPerDrawUniforms>,
     /// Serialized byte slab uploaded into per-draw storage.
     pub slab_bytes: Vec<u8>,
+    /// Contiguous `(first_draw_idx, last_draw_idx)` runs of identical material batch keys for
+    /// this view's sorted draw list. Cleared and refilled by world-mesh forward frame planning;
+    /// held here so the boundary Vec does not reallocate as it grows across frames.
+    pub material_batch_boundaries: Vec<(usize, usize)>,
 }

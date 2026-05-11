@@ -80,6 +80,15 @@ pub trait GraphFrameResources: Send + Sync {
         f: &mut dyn FnMut(&mut Vec<PaddedPerDrawUniforms>, &mut Vec<u8>),
     ) -> bool;
 
+    /// Gives callers mutable access to the per-view material-batch boundary scratch so it can be
+    /// cleared and refilled without reallocating. Returns `false` if the scratch slot has not yet
+    /// been provisioned for this view.
+    fn with_per_view_material_batch_scratch(
+        &self,
+        view_id: ViewId,
+        f: &mut dyn FnMut(&mut Vec<(usize, usize)>),
+    ) -> bool;
+
     /// Per-view per-draw storage buffer.
     fn per_view_per_draw_storage(&self, view_id: ViewId) -> Option<wgpu::Buffer>;
 
