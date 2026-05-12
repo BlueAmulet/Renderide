@@ -187,6 +187,24 @@ fn texture_uv(base_uv: vec2<f32>, view_layer: u32) -> vec2<f32> {
     return uv;
 }
 
+fn offset_texture_uv(uv: vec2<f32>, base_uv: vec2<f32>) -> vec2<f32> {
+    if (kw_OFFSET_TEXTURE()) {
+        let uv_off = uvu::apply_st(base_uv, mat._OffsetTex_ST);
+        let offset_s = textureSample(_OffsetTex, _OffsetTex_sampler, uv_off);
+        return uv + offset_s.xy * mat._OffsetMagnitude.xy;
+    }
+    return uv;
+}
+
+fn sample_main_texture(base_uv: vec2<f32>, view_layer: u32) -> vec4<f32> {
+    if (kw_POLARUV()) {
+        let mapped = uvu::polar_mapping(base_uv, main_st(view_layer), mat._PolarPow);
+        let uv_main = offset_texture_uv(mapped.uv, base_uv);
+        return textureSampleGrad(_Tex, _Tex_sampler, uv_main, mapped.ddx_uv, mapped.ddy_uv);
+    }
+    return textureSample(_Tex, _Tex_sampler, texture_uv(base_uv, view_layer));
+}
+
 fn vertex_color(color: vec4<f32>) -> vec4<f32> {
     if (kw_VERTEX_HDRSRGBALPHA_COLOR()) {
         let rgb_linear = vc::srgb_to_linear_hdr(color);
@@ -211,7 +229,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var clip_alpha: f32;
     if (use_texture) {
         let uv_main = texture_uv(in.uv, in.view_layer);
-        let tex = textureSample(_Tex, _Tex_sampler, uv_main);
+        let tex = sample_main_texture(in.uv, in.view_layer);
         clip_alpha = acs::texture_alpha_base_mip(_Tex, _Tex_sampler, uv_main);
         if (use_color) {
             col = tex * mat._Color;

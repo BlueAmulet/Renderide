@@ -22,8 +22,7 @@ fn selected_draw(view_layer: u32) -> dt::PerDrawUniforms {
 
 fn has_indirect_specular(view_layer: u32, enabled: bool) -> bool {
     let draw = selected_draw(view_layer);
-    let indices = pd::reflection_probe_indices(draw);
-    return enabled && (pd::reflection_probe_hit_count(draw) > 0u || indices.x != 0u);
+    return enabled && pd::reflection_probe_hit_count(draw) > 0u;
 }
 
 fn dominant_reflection_dir(n: vec3<f32>, v: vec3<f32>, perceptual_roughness: f32) -> vec3<f32> {
@@ -157,7 +156,7 @@ fn indirect_radiance(
     let indices = pd::reflection_probe_indices(draw);
     let dir = dominant_reflection_dir(n, v, perceptual_roughness);
     if (count == 0u) {
-        return sample_probe_radiance(indices.x, world_pos, dir, perceptual_roughness);
+        return vec3<f32>(0.0);
     }
     if (count < 2u || indices.y == 0u) {
         return blend_local_probe_with_fallback_radiance(indices.x, indices.y, world_pos, dir, perceptual_roughness);
@@ -277,12 +276,6 @@ fn indirect_diffuse(world_pos: vec3<f32>, normal_ws: vec3<f32>, view_layer: u32,
     }
     if (shamb::ambient_probe_is_valid()) {
         return shamb::ambient_probe(normal_ws);
-    }
-    if (probe_has_any_sh2(indices.x)) {
-        return sample_probe_sh2(indices.x, normal_ws);
-    }
-    if (count > 1u && probe_has_any_sh2(indices.y)) {
-        return sample_probe_sh2(indices.y, normal_ws);
     }
     return vec3<f32>(0.0);
 }

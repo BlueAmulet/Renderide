@@ -253,11 +253,7 @@ fn unity_offset_units(v: f32) -> i32 {
 
 /// Converts Unity's positive-forward depth slope bias to reverse-Z without preserving negative zero.
 fn reverse_z_offset_factor(v: f32) -> f32 {
-    if v == 0.0 {
-        0.0
-    } else {
-        -v
-    }
+    if v == 0.0 { 0.0 } else { -v }
 }
 
 /// Parses an optional `//#source_alias <stem>` directive from a thin shader wrapper.

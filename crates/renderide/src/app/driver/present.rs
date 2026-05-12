@@ -72,7 +72,7 @@ impl AppDriver {
             && let Some(state) = self
                 .runtime
                 .scene()
-                .active_blit_for_display(super::DESKTOP_DISPLAY_INDEX)
+                .desktop_blit_for_display(super::DESKTOP_DISPLAY_INDEX)
         {
             return PresentationPlan::DesktopBlitToDisplay { state };
         }

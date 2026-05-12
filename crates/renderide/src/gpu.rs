@@ -45,8 +45,8 @@ pub(crate) use display_blit::DisplayBlitResources;
 pub(crate) use frame_bindings::{
     CLUSTER_LIGHT_RANGE_WORDS, CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight, GpuReflectionProbeMetadata,
     MAX_LIGHTS, REFLECTION_PROBE_ATLAS_FORMAT, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
-    REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
-    empty_material_bind_group_layout, frame_bind_group_layout, frame_bind_group_layout_entries,
+    REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, empty_material_bind_group_layout,
+    frame_bind_group_layout, frame_bind_group_layout_entries,
 };
 pub(crate) use instance_setup::{RENDERER_MAX_TEXTURE_DIMENSION_2D, instance_flags_for_gpu_init};
 pub(crate) use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits};

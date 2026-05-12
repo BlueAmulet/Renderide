@@ -26,8 +26,8 @@ pub struct WindowInputAccumulator {
     pub mouse_delta: Vec2,
     /// Accumulated scroll wheel / trackpad scroll since the last [`Self::take_input_state`].
     pub scroll_delta: Vec2,
-    /// Last scroll sample consumed by the HUD so repeated HUD frames don't see the same delta.
-    hud_scroll_sample: Vec2,
+    /// Accumulated ImGui wheel units since the last HUD input snapshot.
+    hud_scroll_delta: Vec2,
     /// Pointer position in window space (logical pixels) for [`crate::shared::MouseState`].
     pub window_position: Vec2,
     /// Inner drawable size in **logical** pixels (matches [`Self::window_position`] for host UVs).
@@ -65,7 +65,7 @@ impl Default for WindowInputAccumulator {
         Self {
             mouse_delta: Vec2::ZERO,
             scroll_delta: Vec2::ZERO,
-            hud_scroll_sample: Vec2::ZERO,
+            hud_scroll_delta: Vec2::ZERO,
             window_position: Vec2::ZERO,
             window_resolution: (0, 0),
             left_held: false,
@@ -159,17 +159,25 @@ impl WindowInputAccumulator {
         self.keyboard_modifiers = ModifiersState::empty();
     }
 
-    /// Returns the scroll delta observed since the HUD last read it and advances the HUD marker.
+    /// Accumulates a scroll event for both the host wire contract and the ImGui overlay.
     ///
-    /// The accumulator keeps a running `scroll_delta` for the host. The HUD should call this
-    /// method to obtain the incremental scroll delta since its last read; the method returns
-    /// `scroll_delta - hud_scroll_sample` and advances `hud_scroll_sample` so subsequent HUD
-    /// frames do not reapply the same input. The host still consumes the full accumulated
-    /// `scroll_delta` when `take_input_state()` is called.
+    /// The two accumulators deliberately use different units: `host_delta` matches the IPC
+    /// `MouseState` contract, while `hud_delta` is already in Dear ImGui wheel units.
+    pub(in crate::frontend::input) fn push_scroll_delta(
+        &mut self,
+        host_delta: Vec2,
+        hud_delta: Vec2,
+    ) {
+        self.scroll_delta += host_delta;
+        self.hud_scroll_delta += hud_delta;
+    }
+
+    /// Returns the ImGui wheel delta observed since the HUD last read it.
+    ///
+    /// This is independent from [`Self::scroll_delta`] so lock-step host snapshots can drain their
+    /// scroll payload before the render/HUD phase without losing scroll events for ImGui.
     pub fn take_hud_scroll_delta(&mut self) -> Vec2 {
-        let delta = self.scroll_delta - self.hud_scroll_sample;
-        self.hud_scroll_sample = self.scroll_delta;
-        delta
+        std::mem::take(&mut self.hud_scroll_delta)
     }
 }
 
@@ -203,6 +211,19 @@ mod tests {
         let taken = w.take_input_state(false);
         let mouse = taken.mouse.expect("mouse state");
         assert_eq!(mouse.scroll_wheel_delta.y, 180.0);
+    }
+
+    #[test]
+    fn hud_scroll_delta_survives_host_snapshot_drain() {
+        let mut w = WindowInputAccumulator::default();
+        w.push_scroll_delta(Vec2::new(0.0, 120.0), Vec2::new(0.0, 1.0));
+
+        let taken = w.take_input_state(false);
+        let mouse = taken.mouse.expect("mouse state");
+        assert_eq!(mouse.scroll_wheel_delta, Vec2::new(0.0, 120.0));
+
+        assert_eq!(w.take_hud_scroll_delta(), Vec2::new(0.0, 1.0));
+        assert_eq!(w.take_hud_scroll_delta(), Vec2::ZERO);
     }
 
     #[test]

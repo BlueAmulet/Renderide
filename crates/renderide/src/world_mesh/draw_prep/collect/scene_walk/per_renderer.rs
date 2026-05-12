@@ -1,7 +1,6 @@
 //! Per-renderer fan-out for the scene-walk collection path.
 
 use crate::scene::MeshMaterialSlot;
-use crate::shared::LayerType;
 use crate::world_mesh::materials::FrameMaterialBatchCache;
 
 use super::super::super::item::stacked_material_submesh_range;
@@ -102,21 +101,6 @@ pub(super) fn push_draws_for_renderer(
 }
 
 /// Applies the per-view transform filter and the renderer's transform-scale gate.
-///
-/// **Layer culling for non-selective views** matches the Unity reference renderer
-/// ([`Renderite.Unity.RenderSpace.HandleUpdate`]) which:
-/// 1. Sets Unity's `gameObject.layer` to `Hidden` for descendants of an OverlayLayer-tagged slot
-///    whose layer is `Hidden`, then the main camera's culling mask excludes `Hidden`.
-/// 2. Sets `DefaultLayer = (data.isPrivate ? "Private" : "Default")` on every transform in a
-///    render space, and the main camera's culling mask **also excludes** `Private` so userspace
-///    overlay-private content never renders through the main camera.
-///
-/// Without (2), userspace chrome (dash AlwaysOnFacets, status panel, profile, etc.) -- which
-/// lives directly under `UserspaceRadiantDash.Slot`, NOT under the dash camera's Hidden-layer
-/// `Render` subtree -- ghosts at its world position alongside the curved-plane overlay render
-/// of the dash camera's RT. Overlay-LAYER items are exempt: they are explicitly screen-anchored
-/// via the overlay ortho path in [`crate::passes::world_mesh_forward::vp`], so they must keep
-/// passing this gate even when the surrounding space is private.
 fn renderer_passes_view_filters(
     ctx: &DrawCollectionContext<'_>,
     acc: &DrawCollectionAccumulator<'_>,
@@ -132,34 +116,6 @@ fn renderer_passes_view_filters(
         };
         if !passes {
             return false;
-        }
-    } else if draw.renderer.node_id >= 0 {
-        // Resolve the renderer's *actual* special layer. `renderer.layer` is the wrong signal --
-        // it's `LayerType::Hidden` by default for renderers with no layer-assignment ancestor at
-        // all (regular world meshes) AND for renderers actually under a Hidden subtree, because
-        // `LayerType` only encodes the two special layers and `LayerType::default() == Hidden`.
-        // `transform_special_layer` returns `Option<LayerType>`, with `None` meaning "no special
-        // layer" (regular world mesh, should still render).
-        let special_layer = ctx
-            .scene
-            .transform_special_layer(draw.space_id, draw.renderer.node_id as usize);
-        // Hidden cull: items genuinely under a Hidden-tagged ancestor render only through the
-        // camera whose `SelectiveRender` explicitly includes them (e.g. `RadiantDash.Camera` ->
-        // its RT). Every other view skips them.
-        if matches!(special_layer, Some(LayerType::Hidden)) {
-            return false;
-        }
-        // Private-space cull: a private render space's content is only visible to cameras with a
-        // matching selective-render filter. Overlay-layer items keep rendering via the overlay-
-        // ortho path so the curved planes still appear screen-anchored.
-        if special_layer != Some(LayerType::Overlay) {
-            let space_is_private = ctx
-                .scene
-                .space(draw.space_id)
-                .is_some_and(|s| s.is_private());
-            if space_is_private {
-                return false;
-            }
         }
     }
     if transform_chain_has_degenerate_scale(ctx, draw.space_id, draw.renderer.node_id) {

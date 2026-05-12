@@ -9,8 +9,6 @@ pub const REFLECTION_PROBE_ATLAS_FORMAT: wgpu::TextureFormat = wgpu::TextureForm
 pub const REFLECTION_PROBE_METADATA_BOX_PROJECTION: u32 = 1;
 /// Probe metadata parameter value for local reflection-probe SH2 coefficients.
 pub const REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL: f32 = 1.0;
-/// Probe metadata parameter value for skybox-derived SH2 coefficients.
-pub const REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX: f32 = 2.0;
 
 /// One reflection-probe metadata row consumed by PBS fragment shaders.
 #[repr(C)]
