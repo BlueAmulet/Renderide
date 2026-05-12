@@ -412,7 +412,7 @@ impl ComputePass for MeshDeformPass {
         if frame
             .shared
             .frame_resources
-            .mesh_deform_dispatched_this_tick()
+            .mesh_deform_dispatched_this_submission()
         {
             return Ok(());
         }
@@ -491,7 +491,7 @@ impl ComputePass for MeshDeformPass {
         frame
             .shared
             .frame_resources
-            .set_mesh_deform_dispatched_this_tick();
+            .set_mesh_deform_dispatched_this_submission();
         Ok(())
     }
 }

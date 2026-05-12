@@ -9,8 +9,9 @@ use super::*;
 use glam::{Mat4, Quat, Vec3};
 
 use crate::camera::ViewId;
+use crate::mesh_deform::{SkinCacheKey, SkinCacheRendererKind};
 use crate::render_graph::frame_params::PreRecordViewResourceLayout;
-use crate::scene::{RenderSpaceId, SceneCoordinator};
+use crate::scene::{MeshRendererInstanceId, RenderSpaceId, SceneCoordinator};
 use crate::shared::{
     LightData, LightType, LightsBufferRendererState, RenderTransform, RenderingContext, ShadowType,
 };
@@ -49,6 +50,35 @@ fn new_manager_has_no_per_view_frame() {
     let secondary = ViewId::secondary_camera(RenderSpaceId(42), 0);
     assert!(mgr.per_view_frame(ViewId::Main).is_none());
     assert!(mgr.per_view_frame(secondary).is_none());
+}
+
+#[test]
+fn mesh_deform_submission_replaces_visible_filter_and_clears_dispatch_flag() {
+    let first = SkinCacheKey::new(
+        RenderSpaceId(1),
+        SkinCacheRendererKind::Skinned,
+        MeshRendererInstanceId(10),
+    );
+    let second = SkinCacheKey::new(
+        RenderSpaceId(2),
+        SkinCacheRendererKind::Skinned,
+        MeshRendererInstanceId(20),
+    );
+    let mut mgr = FrameResourceManager::new();
+
+    mgr.begin_mesh_deform_submission(hashbrown::HashSet::from_iter([first]));
+    mgr.set_mesh_deform_dispatched_this_submission();
+    assert!(mgr.mesh_deform_dispatched_this_submission());
+
+    mgr.begin_mesh_deform_submission(hashbrown::HashSet::from_iter([second]));
+
+    assert!(!mgr.mesh_deform_dispatched_this_submission());
+    let visible = mgr
+        .visible_mesh_deform_keys_snapshot()
+        .expect("visible deform filter");
+    assert_eq!(visible.len(), 1);
+    assert!(visible.contains(&second));
+    assert!(!visible.contains(&first));
 }
 
 /// Shared pre-record work deduplicates only the cluster allocation shape, not snapshot needs.

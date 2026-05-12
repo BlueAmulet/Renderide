@@ -166,12 +166,12 @@ impl GraphFrameResources for FrameResourceManager {
         self.visible_mesh_deform_filter_is_empty()
     }
 
-    fn mesh_deform_dispatched_this_tick(&self) -> bool {
-        self.mesh_deform_dispatched_this_tick()
+    fn mesh_deform_dispatched_this_submission(&self) -> bool {
+        self.mesh_deform_dispatched_this_submission()
     }
 
-    fn set_mesh_deform_dispatched_this_tick(&self) {
-        self.set_mesh_deform_dispatched_this_tick();
+    fn set_mesh_deform_dispatched_this_submission(&self) {
+        self.set_mesh_deform_dispatched_this_submission();
     }
 
     fn visible_mesh_deform_keys_snapshot(&self) -> Option<HashSet<SkinCacheKey>> {
