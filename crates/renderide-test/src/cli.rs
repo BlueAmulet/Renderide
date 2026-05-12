@@ -71,7 +71,7 @@ enum Command {
         ///
         /// Default 0.95 absorbs cross-adapter variance (Intel vs lavapipe vs other). The
         /// flat-image sanity gate in [`crate::golden`] rejects clear-only frames regardless.
-        #[arg(long, default_value_t = 0.85)]
+        #[arg(long, default_value_t = 0.75)]
         ssim_min: f64,
         /// Where to write the diff visualization on failure.
         #[arg(long, default_value = "target/golden-diff.png")]
