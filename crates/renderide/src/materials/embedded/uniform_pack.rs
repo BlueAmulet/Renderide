@@ -18,7 +18,7 @@ mod tables;
 
 pub(crate) use crate::color_space::srgb_f32x4_rgb_to_linear as srgb_vec4_rgb_to_linear;
 pub(crate) use color_space::MaterialUniformValueSpaces;
-use helpers::{default_f32_for_field, default_vec4_for_field, shader_writer_unescaped_field_name};
+use helpers::shader_writer_unescaped_field_name;
 use tables::inferred_shader_variant_bits_u32;
 
 /// Suffix convention that opts a uniform field in to host `mipmap_bias` population.
@@ -97,9 +97,11 @@ pub(crate) struct UniformPackTextureContext<'a> {
 /// Every value comes from one of several sources, in priority order: texture storage-orientation
 /// flags for fields following the [`STORAGE_V_INVERTED_SUFFIX`] convention, host-sourced sampler
 /// state for fields following the [`LOD_BIAS_SUFFIX`] convention (`_<Tex>_LodBias`), the host's
-/// property store (for host-declared properties), the scalar/vector default tables, or
-/// the renderer-reserved `_RenderideVariantBits` variant bitfield. Anything else falls through
-/// to zero for the unobservable pre-first-batch window.
+/// property store (for host-declared properties), or the renderer-reserved
+/// `_RenderideVariantBits` variant bitfield. Anything else falls through to zero -- the host's
+/// `MaterialProviderBase` bootstraps every `Sync<X>` on the first batch for a material, so the
+/// renderer's only observable state is the host's authoritative writes; deltas come from later
+/// batches. The pre-first-batch window is never visible.
 #[cfg(test)]
 pub(crate) fn build_embedded_uniform_bytes(
     reflected: &ReflectedRasterLayout,
@@ -141,7 +143,7 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                     if let Some(MaterialPropertyValue::Float4(c)) = store.get_merged(lookup, pid) {
                         *c
                     } else {
-                        default_vec4_for_reflected_field(field_name, ids)
+                        [0.0; 4]
                     };
                 if value_spaces.is_srgb_vec4(field_name) {
                     v = srgb_vec4_rgb_to_linear(v);
@@ -161,7 +163,7 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                 {
                     *f
                 } else {
-                    default_f32_for_reflected_field(field_name, ids).unwrap_or(0.0)
+                    0.0
                 };
                 write_f32_at(&mut buf, field, v);
             }
@@ -191,35 +193,6 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
     }
 
     Some(buf)
-}
-
-/// Returns a stem-aware default for a reflected scalar uniform field.
-fn default_f32_for_reflected_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> Option<f32> {
-    let field_name = shader_writer_unescaped_field_name(field_name);
-    if ids.procedural_skybox_defaults {
-        match field_name {
-            "_Exposure" => return Some(1.3),
-            "_SunSize" => return Some(0.04),
-            "_AtmosphereThickness" => return Some(1.0),
-            _ => {}
-        }
-    }
-    default_f32_for_field(field_name)
-}
-
-/// Returns a stem-aware default for a reflected vector uniform field.
-fn default_vec4_for_reflected_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> [f32; 4] {
-    let field_name = shader_writer_unescaped_field_name(field_name);
-    if ids.procedural_skybox_defaults {
-        match field_name {
-            "_SkyTint" => return [0.5, 0.5, 0.5, 1.0],
-            "_GroundColor" => return [0.369, 0.349, 0.341, 1.0],
-            "_SunColor" => return [1.0, 1.0, 1.0, 1.0],
-            "_SunDirection" => return [0.577, 0.577, 0.577, 0.0],
-            _ => {}
-        }
-    }
-    default_vec4_for_field(field_name)
 }
 
 /// Resolves the texture binding for a reflected group-1 texture name.

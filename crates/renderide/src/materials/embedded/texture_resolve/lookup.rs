@@ -263,7 +263,6 @@ mod tests {
             StemEmbeddedPropertyIds {
                 uniform_field_ids: HashMap::new(),
                 texture_binding_property_ids,
-                procedural_skybox_defaults: false,
             },
             registry,
         )

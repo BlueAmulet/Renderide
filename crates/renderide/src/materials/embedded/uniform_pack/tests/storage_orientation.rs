@@ -78,7 +78,7 @@ fn reflected_with_texture_and_fields(
         uses_scene_color_snapshot: false,
         requires_intersection_pass: false,
     };
-    let ids = StemEmbeddedPropertyIds::build("test_default", &registry, &reflected);
+    let ids = StemEmbeddedPropertyIds::build(&registry, &reflected);
     (reflected, ids, registry)
 }
 

@@ -24,9 +24,6 @@ pub(crate) struct StemMaterialLayout {
 pub(crate) struct StemEmbeddedPropertyIds {
     pub(crate) uniform_field_ids: HashMap<String, i32>,
     pub(crate) texture_binding_property_ids: HashMap<u32, Arc<[i32]>>,
-    /// Whether this stem should use Unity ProceduralSkybox property defaults when the host
-    /// hasn't written explicit values for `_SkyTint`/`_GroundColor`/etc.
-    pub(crate) procedural_skybox_defaults: bool,
 }
 
 /// Returns alternate host property names for a canonical texture binding name.
@@ -46,11 +43,7 @@ fn texture_property_aliases(name: &str) -> &'static [&'static str] {
 pub(crate) use crate::materials::wgsl_reflect::identifier_names::unescape_property_name as shader_writer_unescaped_property_name;
 
 impl StemEmbeddedPropertyIds {
-    pub(crate) fn build(
-        stem: &str,
-        registry: &PropertyIdRegistry,
-        reflected: &ReflectedRasterLayout,
-    ) -> Self {
+    pub(crate) fn build(registry: &PropertyIdRegistry, reflected: &ReflectedRasterLayout) -> Self {
         let mut uniform_field_ids = HashMap::new();
         if let Some(u) = reflected.material_uniform.as_ref() {
             for field_name in u.fields.keys() {
@@ -80,19 +73,11 @@ impl StemEmbeddedPropertyIds {
             }
         }
 
-        let source_stem = source_stem_from_target_stem(stem);
         Self {
             uniform_field_ids,
             texture_binding_property_ids,
-            procedural_skybox_defaults: source_stem == "proceduralskybox",
         }
     }
-}
-
-fn source_stem_from_target_stem(stem: &str) -> &str {
-    stem.strip_suffix("_default")
-        .or_else(|| stem.strip_suffix("_multiview"))
-        .unwrap_or(stem)
 }
 
 /// Stable hash for stem strings (uniform/bind cache keys).
@@ -121,7 +106,6 @@ pub(crate) fn build_stem_material_layout(
     });
 
     let ids = Arc::new(StemEmbeddedPropertyIds::build(
-        stem,
         property_registry,
         &reflected,
     ));
@@ -148,7 +132,7 @@ mod tests {
         let reflected = reflect_raster_material_wgsl(wgsl).expect("xiexe WGSL reflection");
         let registry = PropertyIdRegistry::new();
 
-        let ids = StemEmbeddedPropertyIds::build("xstoon2.0_default", &registry, &reflected);
+        let ids = StemEmbeddedPropertyIds::build(&registry, &reflected);
 
         assert_eq!(
             ids.texture_binding_property_ids.get(&1).map(|p| &**p),

@@ -79,7 +79,7 @@ pub(super) fn reflected_with_f32_fields(
 }
 
 pub(super) fn reflected_with_f32_fields_for_stem(
-    stem: &str,
+    _stem: &str,
     field_specs: &[(&str, u32)],
 ) -> (
     ReflectedRasterLayout,
@@ -116,7 +116,7 @@ pub(super) fn reflected_with_f32_fields_for_stem(
         uses_scene_color_snapshot: false,
         requires_intersection_pass: false,
     };
-    let ids = StemEmbeddedPropertyIds::build(stem, &registry, &reflected);
+    let ids = StemEmbeddedPropertyIds::build(&registry, &reflected);
     (reflected, ids, registry)
 }
 
@@ -131,7 +131,7 @@ pub(super) fn reflected_with_uniform_fields(
 }
 
 pub(super) fn reflected_with_uniform_fields_for_stem(
-    stem: &str,
+    _stem: &str,
     field_specs: &[(&str, ReflectedUniformScalarKind, u32, u32)],
 ) -> (
     ReflectedRasterLayout,
@@ -168,6 +168,6 @@ pub(super) fn reflected_with_uniform_fields_for_stem(
         uses_scene_color_snapshot: false,
         requires_intersection_pass: false,
     };
-    let ids = StemEmbeddedPropertyIds::build(stem, &registry, &reflected);
+    let ids = StemEmbeddedPropertyIds::build(&registry, &reflected);
     (reflected, ids, registry)
 }
