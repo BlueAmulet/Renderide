@@ -13,6 +13,9 @@
 #import renderide::frame::scene_depth_sample as sds
 #import renderide::core::uv as uvu
 #import renderide::pbs::normal as pnorm
+#import renderide::draw::per_draw as pd
+#import renderide::mesh::vertex as mv
+#import renderide::frame::view_basis as vbasis
 #import renderide::material::variant_bits as vb
 #import renderide::ui::rect_clip as uirc
 
@@ -38,6 +41,16 @@ const BLUR_KW_SPREAD_TEX: u32 = 1u << 4u;
 @group(1) @binding(2) var _SpreadTex_sampler: sampler;
 @group(1) @binding(3) var _NormalMap: texture_2d<f32>;
 @group(1) @binding(4) var _NormalMap_sampler: sampler;
+
+struct BlurVertexOutput {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) primary_uv: vec2<f32>,
+    @location(1) world_pos: vec3<f32>,
+    @location(2) view_n: vec3<f32>,
+    @location(3) @interpolate(flat) view_layer: u32,
+    @location(4) obj_xy: vec2<f32>,
+    @location(5) view_t: vec4<f32>,
+}
 
 fn blur_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
@@ -73,19 +86,31 @@ fn vs_main(
     @location(1) n: vec4<f32>,
     @location(2) uv0: vec2<f32>,
     @location(4) t: vec4<f32>,
-) -> fv::RectVertexOutput {
+) -> BlurVertexOutput {
 #ifdef MULTIVIEW
-    return fv::rect_vertex_main(instance_index, view_idx, pos, n, t, uv0);
+    let layer = view_idx;
 #else
-    return fv::rect_vertex_main(instance_index, 0u, pos, n, t, uv0);
+    let layer = 0u;
 #endif
+    let inner = fv::vertex_main(instance_index, layer, pos, n, t, uv0);
+    let d = pd::get_draw(instance_index);
+    let vp = mv::select_view_proj(d, layer);
+    var out: BlurVertexOutput;
+    out.clip_pos = inner.clip_pos;
+    out.primary_uv = inner.primary_uv;
+    out.world_pos = inner.world_pos;
+    out.view_n = inner.view_n;
+    out.view_layer = inner.view_layer;
+    out.obj_xy = pos.xy;
+    out.view_t = vec4<f32>(vbasis::world_to_view_normal(inner.world_t.xyz, vp), inner.world_t.w);
+    return out;
 }
 
 fn refraction_enabled() -> bool {
     return kw_REFRACT() || kw_REFRACT_NORMALMAP();
 }
 
-fn refract_offset(uv0: vec2<f32>, view_n: vec3<f32>, clip_recip_w: f32) -> vec2<f32> {
+fn refract_offset(uv0: vec2<f32>, view_n: vec3<f32>, view_t: vec4<f32>, clip_w: f32) -> vec2<f32> {
     if (!refraction_enabled()) {
         return vec2<f32>(0.0);
     }
@@ -95,9 +120,10 @@ fn refract_offset(uv0: vec2<f32>, view_n: vec3<f32>, clip_recip_w: f32) -> vec2<
             textureSample(_NormalMap, _NormalMap_sampler, uvu::apply_st(uv0, mat._NormalMap_ST)),
             1.0,
         );
-        n = normalize(vec3<f32>(n.xy + ts.xy, n.z));
+        let tbn = pnorm::orthonormal_tbn(n, view_t);
+        n = normalize(tbn * ts);
     }
-    return n.xy * clip_recip_w * mat._RefractionStrength;
+    return n.xy / clip_w * mat._RefractionStrength;
 }
 
 fn spread_modulation(uv0: vec2<f32>) -> vec2<f32> {
@@ -107,33 +133,34 @@ fn spread_modulation(uv0: vec2<f32>) -> vec2<f32> {
     return textureSample(_SpreadTex, _SpreadTex_sampler, uvu::apply_st(uv0, mat._SpreadTex_ST)).rg;
 }
 
-fn sample_blur(center_uv: vec2<f32>, spread: vec2<f32>, iterations: u32, view_layer: u32) -> vec4<f32> {
+fn sample_blur(center_uv: vec2<f32>, spread: vec2<f32>, iterations: f32, view_layer: u32) -> vec4<f32> {
     var c = vec4<f32>(0.0);
     let use_poisson = kw_POISSON_DISC();
+    let clamped_iterations = clamp(iterations, 1.0, 128.0);
     for (var i = 0u; i < 128u; i = i + 1u) {
-        if (i >= iterations) {
+        if (f32(i) >= clamped_iterations) {
             break;
         }
+        let angle = (f32(i) / clamped_iterations) * fm::TAU;
         let offset = select(
-            fm::circular_blur_offset(i, iterations, spread),
+            vec2<f32>(-cos(angle), sin(angle)) * spread,
             fm::poisson_blur_offset(i, spread),
             use_poisson,
         );
         c = c + gp::sample_scene_color(center_uv + offset, view_layer);
     }
-    return c / max(f32(iterations), 1.0);
+    return c / clamped_iterations;
 }
 
 //#pass forward
 @fragment
-fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: BlurVertexOutput) -> @location(0) vec4<f32> {
     if (uirc::should_clip_rect_kw(in.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
     let screen_uv = gp::frag_screen_uv(in.clip_pos);
-    let fade = sds::depth_fade(in.clip_pos, in.world_pos, in.view_layer, mat._DepthDivisor);
+    let center_uv = screen_uv - refract_offset(in.primary_uv, in.view_n, in.view_t, in.clip_pos.w);
+    let fade = sds::depth_fade_at_uv(center_uv, in.world_pos, in.view_layer, mat._DepthDivisor);
     let spread = mat._Spread.xy * spread_modulation(in.primary_uv) * fade;
-    let center_uv = screen_uv - refract_offset(in.primary_uv, in.view_n, in.clip_pos.w) * fade;
-    let iterations = u32(clamp(mat._Iterations, 1.0, 128.0));
-    return rg::retain_globals_additive(sample_blur(center_uv, spread, iterations, in.view_layer));
+    return rg::retain_globals_additive(sample_blur(center_uv, spread, mat._Iterations, in.view_layer));
 }

@@ -527,7 +527,11 @@ fn overlay_model_matrix_for_dash_like_hierarchy_ignores_overlay_root_local_pose(
     // OverlayRoot-local space after VisualsRoot's scale-by-2 applies. That's the half-width
     // boundary of a unit ortho -- right edge of screen.
     let right = model * glam::Vec4::new(0.5, 0.0, 0.0, 1.0);
-    assert!((right.x - 1.0).abs() < 1e-4, "expected x≈1.0, got {}", right.x);
+    assert!(
+        (right.x - 1.0).abs() < 1e-4,
+        "expected x≈1.0, got {}",
+        right.x
+    );
 }
 
 /// Same hierarchy as above, but the OverlayRoot (node 2) is given a **non-identity local pose**
@@ -580,15 +584,39 @@ fn overlay_model_matrix_strips_non_identity_overlay_root_local() {
     // Leaf has identity local -> overlay-relative matrix MUST be identity, NOT the OverlayRoot's
     // local pose. Any non-zero translation here would put the overlay-anchored leaf out in 3D.
     let origin = model * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
-    assert!(origin.x.abs() < 1e-4, "leaked OverlayRoot.position.x: {}", origin.x);
-    assert!(origin.y.abs() < 1e-4, "leaked OverlayRoot.position.y: {}", origin.y);
-    assert!(origin.z.abs() < 1e-4, "leaked OverlayRoot.position.z: {}", origin.z);
+    assert!(
+        origin.x.abs() < 1e-4,
+        "leaked OverlayRoot.position.x: {}",
+        origin.x
+    );
+    assert!(
+        origin.y.abs() < 1e-4,
+        "leaked OverlayRoot.position.y: {}",
+        origin.y
+    );
+    assert!(
+        origin.z.abs() < 1e-4,
+        "leaked OverlayRoot.position.z: {}",
+        origin.z
+    );
 
     // And a non-origin leaf vertex must not get rotated by the OverlayRoot's rotation.
     let plus_x = model * glam::Vec4::new(1.0, 0.0, 0.0, 1.0);
-    assert!((plus_x.x - 1.0).abs() < 1e-4, "expected x≈1.0, got {}", plus_x.x);
-    assert!(plus_x.y.abs() < 1e-4, "expected y≈0 (no rotation leak), got {}", plus_x.y);
-    assert!(plus_x.z.abs() < 1e-4, "expected z≈0 (no rotation leak), got {}", plus_x.z);
+    assert!(
+        (plus_x.x - 1.0).abs() < 1e-4,
+        "expected x≈1.0, got {}",
+        plus_x.x
+    );
+    assert!(
+        plus_x.y.abs() < 1e-4,
+        "expected y≈0 (no rotation leak), got {}",
+        plus_x.y
+    );
+    assert!(
+        plus_x.z.abs() < 1e-4,
+        "expected z≈0 (no rotation leak), got {}",
+        plus_x.z
+    );
 }
 
 /// Full pipeline assertion mimicking the dash hierarchy as it actually exists in FrooxEngine
@@ -651,7 +679,8 @@ fn full_pipeline_overlay_vertex_projects_to_screen_ndc() {
         .overlay_layer_model_matrix_for_context(id, 4, RenderingContext::UserView)
         .expect("overlay model");
     let viewport = Viewport::from_tuple((1920, 1080));
-    let overlay_proj = HostCameraFrame::overlay_projection(viewport, CameraClipPlanes::new(0.1, 100.0));
+    let overlay_proj =
+        HostCameraFrame::overlay_projection(viewport, CameraClipPlanes::new(0.1, 100.0));
     // Mirrors the view-shift `compute_per_draw_vp_matrices` applies for overlay items.
     let overlay_view = Mat4::from_translation(Vec3::new(0.0, 0.0, -1.0));
     let vp = overlay_proj * overlay_view;
@@ -663,18 +692,15 @@ fn full_pipeline_overlay_vertex_projects_to_screen_ndc() {
     let origin_ndc_z = origin_clip.z / origin_clip.w;
     assert!(
         origin_ndc_x.abs() < 1e-4,
-        "expected NDC x≈0 (screen center), got {}",
-        origin_ndc_x,
+        "expected NDC x≈0 (screen center), got {origin_ndc_x}",
     );
     assert!(
         origin_ndc_y.abs() < 1e-4,
-        "expected NDC y≈0 (screen center), got {}",
-        origin_ndc_y,
+        "expected NDC y≈0 (screen center), got {origin_ndc_y}",
     );
     assert!(
         (0.0..=1.0).contains(&origin_ndc_z),
-        "expected NDC z in [0, 1] for reverse-Z (view-shift pushes vertex into frustum), got {}",
-        origin_ndc_z,
+        "expected NDC z in [0, 1] for reverse-Z (view-shift pushes vertex into frustum), got {origin_ndc_z}",
     );
 
     // Vertex at curved plane's local (+0.5, 0, 0): with VisualsRoot scale 1.5 -> overlay-local
@@ -685,14 +711,11 @@ fn full_pipeline_overlay_vertex_projects_to_screen_ndc() {
     let expected_x = 0.75 * 2.0 * 1080.0 / 1920.0;
     assert!(
         (right_ndc_x - expected_x).abs() < 1e-3,
-        "expected NDC x≈{}, got {}",
-        expected_x,
-        right_ndc_x,
+        "expected NDC x≈{expected_x}, got {right_ndc_x}",
     );
     assert!(
         right_ndc_x.abs() < 1.0,
-        "NDC x must stay within [-1, 1] to be visible on screen; got {}",
-        right_ndc_x,
+        "NDC x must stay within [-1, 1] to be visible on screen; got {right_ndc_x}",
     );
 }
 

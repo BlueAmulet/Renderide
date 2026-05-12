@@ -23,3 +23,29 @@ fn polar_uv(raw_uv: vec2<f32>, radius_pow: f32) -> vec2<f32> {
     let angle = atan2(centered.x, centered.y) + angle_len * 0.5;
     return vec2<f32>(angle / angle_len, radius);
 }
+
+struct PolarMapping {
+    uv: vec2<f32>,
+    ddx_uv: vec2<f32>,
+    ddy_uv: vec2<f32>,
+}
+
+fn transform_polar_mapping(polar: vec2<f32>, st: vec4<f32>) -> PolarMapping {
+    let transformed = apply_st(polar, st);
+    let coord0 = transformed;
+    let coord1 = vec2<f32>(fract(abs(transformed.x) + 0.5), transformed.y);
+
+    let ddx0 = dpdx(coord0);
+    let ddy0 = dpdy(coord0);
+    let ddx1 = dpdx(coord1);
+    let ddy1 = dpdy(coord1);
+
+    if (length(ddx1) + length(ddy1) < length(ddx0) + length(ddy0)) {
+        return PolarMapping(transformed, ddx1, ddy1);
+    }
+    return PolarMapping(transformed, ddx0, ddy0);
+}
+
+fn polar_mapping(raw_uv: vec2<f32>, st: vec4<f32>, radius_pow: f32) -> PolarMapping {
+    return transform_polar_mapping(polar_uv(raw_uv, radius_pow), st);
+}

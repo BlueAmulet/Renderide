@@ -38,7 +38,7 @@ const DEPTHPROJECTION_KW_DEPTH_HUE: u32 = 1u << 1u;
 @group(1) @binding(3) var _DepthTex: texture_2d<f32>;
 @group(1) @binding(4) var _DepthTex_sampler: sampler;
 
-const PI: f32 = 3.14159265359;
+const PI: f32 = 3.1415;
 
 fn kw_DEPTH_HUE() -> bool {
     return vb::enabled(mat._RenderideVariantBits, DEPTHPROJECTION_KW_DEPTH_HUE);
