@@ -14,7 +14,7 @@ pub const REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL: f32 = 1.0;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 pub struct GpuReflectionProbeMetadata {
-    /// World-space AABB minimum, padded to a vec4.
+    /// World-space AABB minimum; `.w` stores the sanitized blend distance.
     pub box_min: [f32; 4],
     /// World-space AABB maximum, padded to a vec4.
     pub box_max: [f32; 4],

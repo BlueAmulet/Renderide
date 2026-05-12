@@ -15,12 +15,16 @@ use super::meshes::types::{MeshRendererInstanceId, SkinnedMeshRenderer, StaticMe
 use super::reflection_probe::ReflectionProbeEntry;
 
 /// One host layer component / assignment anchored to a transform node.
+///
+/// The `node_id`/`layer` fields are `pub` so diagnostic snapshots can read entries through
+/// [`RenderSpaceView::layer_assignments`] without piercing the `pub(in crate::scene)` walls. Apply
+/// paths still own *mutation* via the `pub(in crate::scene)` struct visibility itself.
 #[derive(Debug, Clone, Copy)]
-pub(in crate::scene) struct LayerAssignmentEntry {
+pub(crate) struct LayerAssignmentEntry {
     /// Dense transform index the layer assignment is attached to.
-    pub(in crate::scene) node_id: i32,
+    pub(crate) node_id: i32,
     /// Host layer value inherited by descendant renderers until another assignment overrides it.
-    pub(in crate::scene) layer: LayerType,
+    pub(crate) layer: LayerType,
 }
 
 impl Default for LayerAssignmentEntry {
@@ -104,6 +108,16 @@ impl<'a> RenderSpaceView<'a> {
     /// Parent ids indexed by dense transform id.
     pub fn node_parents(self) -> &'a [i32] {
         &self.state.node_parents
+    }
+
+    /// Host layer assignments registered against this space, in append order.
+    ///
+    /// Diagnostic-only accessor; exposes the table that
+    /// [`crate::scene::layer::apply_layer_update_extracted`] populates so debug HUD windows can
+    /// surface "which node ids have a `LayerType` assignment". Resolution to descendants is via
+    /// [`crate::scene::SceneCoordinator::transform_special_layer`].
+    pub(crate) fn layer_assignments(self) -> &'a [LayerAssignmentEntry] {
+        &self.state.layer_assignments
     }
 
     /// Static mesh renderers indexed by static renderable id.

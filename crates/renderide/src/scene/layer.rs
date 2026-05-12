@@ -361,6 +361,122 @@ mod tests {
         );
     }
 
+    /// Distinguishing "renderer is under a Hidden ancestor" from "renderer has no layer
+    /// ancestor at all" via `transform_special_layer`. The renderer's `layer` field defaults to
+    /// `LayerType::Hidden` (because `LayerType::default() == Hidden`), so it cannot itself be
+    /// used to tell the two cases apart. The per-renderer cull in
+    /// `world_mesh::draw_prep::collect::scene_walk::per_renderer` must therefore route through
+    /// `SceneCoordinator::transform_special_layer`, which returns `Option<LayerType>` --
+    /// `Some(Hidden)` means actually under Hidden, `None` means no layer ancestor at all (the
+    /// regular world mesh path that must keep rendering).
+    #[test]
+    fn special_layer_distinguishes_hidden_subtree_from_world_meshes() {
+        use crate::scene::SceneCoordinator;
+        use crate::scene::ids::RenderSpaceId;
+
+        let id = RenderSpaceId(42);
+        let mut scene = SceneCoordinator::new();
+        scene.test_seed_space_identity_worlds(
+            id,
+            vec![
+                // 0: root (no layer)
+                crate::shared::RenderTransform::default(),
+                // 1: Render slot (Hidden layer assignment)
+                crate::shared::RenderTransform::default(),
+                // 2: inner UI canvas (descendant of Render -> resolves to Hidden)
+                crate::shared::RenderTransform::default(),
+                // 3: regular world mesh slot (no layer ancestor)
+                crate::shared::RenderTransform::default(),
+            ],
+            vec![-1, 0, 1, 0],
+        );
+        // Inject the Hidden assignment on node 1 (the "Render" equivalent).
+        scene.test_push_layer_assignment(id, 1, LayerType::Hidden);
+
+        assert_eq!(
+            scene.transform_special_layer(id, 2),
+            Some(LayerType::Hidden),
+            "node 2 lives under the Hidden ancestor -> must report Hidden so the main view culls it",
+        );
+        assert_eq!(
+            scene.transform_special_layer(id, 3),
+            None,
+            "node 3 is a regular world mesh with no layer ancestor -> must report None so the \
+             main view keeps rendering it",
+        );
+        // Sanity: the Hidden anchor itself reports Hidden.
+        assert_eq!(
+            scene.transform_special_layer(id, 1),
+            Some(LayerType::Hidden)
+        );
+    }
+
+    /// Builds a scene mirroring the FrooxEngine `UserspaceRadiantDash` + `OverlayManager` slot
+    /// layout in desktop mode and verifies the resolved `renderer.layer` for the dash's inner UI
+    /// (which lives under `LayerType::Hidden` -> only the dash camera sees it) and for the
+    /// reparented curved planes (under `LayerType::Overlay` -> drawn screen-anchored).
+    ///
+    /// Regression guard for the "ghost dash" double-render: if this test ever fails, the main
+    /// view's Hidden-layer cull in `world_mesh::draw_prep::collect::scene_walk::per_renderer`
+    /// will see the inner UI as `LayerType::Default` and render it at world position alongside
+    /// the dash camera's RT.
+    #[test]
+    fn dash_layout_resolves_inner_ui_to_hidden_and_curved_planes_to_overlay() {
+        // Node layout (parent indices in `node_parents`):
+        //   0  Userspace root
+        //   1  UserspaceRadiantDash.Slot   (parent 0)
+        //   2  OverlayManager.Slot         (parent 0)
+        //   3  OverlayManager.OverlayRoot  (parent 2, LayerType::Overlay)
+        //   4  Dash.Slot (under UserspaceRadiantDash)            (parent 1)
+        //   5  Dash.Render (HiddenLayer)   (parent 4, LayerType::Hidden)
+        //   6  Dash inner UI canvas        (parent 5) -- renderer R1 hangs off this
+        //   7  Dash.VisualsRoot (reparented under OverlayRoot in desktop) (parent 3)
+        //   8  Curved plane Screen         (parent 7) -- renderer R2 hangs off this
+        let mut space = RenderSpaceState {
+            node_parents: vec![-1, 0, 0, 2, 1, 4, 5, 3, 7],
+            layer_assignments: vec![
+                LayerAssignmentEntry {
+                    node_id: 3,
+                    layer: LayerType::Overlay,
+                },
+                LayerAssignmentEntry {
+                    node_id: 5,
+                    layer: LayerType::Hidden,
+                },
+            ],
+            static_mesh_renderers: vec![
+                StaticMeshRenderer {
+                    node_id: 6, // inner UI canvas, descendant of Render (Hidden)
+                    layer: LayerType::default(),
+                    ..Default::default()
+                },
+                StaticMeshRenderer {
+                    node_id: 8, // curved plane, descendant of OverlayRoot (Overlay)
+                    layer: LayerType::default(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        space.layer_index_dirty = true;
+        space.hierarchy_dirty = true;
+
+        resolve_mesh_layers_from_assignments(&mut space);
+
+        assert_eq!(
+            space.static_mesh_renderers[0].layer,
+            LayerType::Hidden,
+            "inner UI under Dash.Render must resolve to Hidden so the main view's per-renderer \
+             filter culls it (otherwise the dash chrome ghosts at world position)",
+        );
+        assert_eq!(
+            space.static_mesh_renderers[1].layer,
+            LayerType::Overlay,
+            "curved plane under OverlayRoot must resolve to Overlay so it renders through the \
+             screen-anchored overlay-ortho path, not the world camera",
+        );
+    }
+
     #[test]
     fn layer_rows_only_apply_to_new_assignments() {
         let mut space = RenderSpaceState {

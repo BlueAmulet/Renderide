@@ -13,7 +13,7 @@ use crate::config::{
 /// Defaults match prior behavior:
 /// - All open flags start `true` so the windows appear on first launch.
 /// - All filter toggles start `false` (no narrowing applied).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HudUiState {
     /// Whether the **Scene transforms** window is open.
     pub scene_transforms_open: bool,
@@ -25,6 +25,14 @@ pub struct HudUiState {
     pub draw_state_ui_only: bool,
     /// Show only material rows with render-state overrides in the **Draw state** tab.
     pub draw_state_only_overrides: bool,
+    /// Show only `is_overlay=true` draws in the **Draw state** tab. Independent of `ui_only`.
+    pub draw_state_overlay_only: bool,
+    /// Hide `is_overlay=true` draws in the **Draw state** tab. Mutually exclusive with `overlay_only`.
+    pub draw_state_hide_overlay: bool,
+    /// Substring filter on `Node` column in the **Draw state** tab. Empty = no filter.
+    pub draw_state_node_filter: String,
+    /// Substring filter on `Material` / `Pipeline` columns in the **Draw state** tab.
+    pub draw_state_text_filter: String,
     /// Show only fallback shader routes in the **Shader routes** tab.
     pub shader_routes_only_fallback: bool,
     /// Whether the **Renderer config** window is open.
@@ -62,6 +70,10 @@ impl HudUiState {
             texture_debug_current_view_only: settings.texture_debug_current_view_only,
             draw_state_ui_only: settings.draw_state_ui_only,
             draw_state_only_overrides: settings.draw_state_only_overrides,
+            draw_state_overlay_only: false,
+            draw_state_hide_overlay: false,
+            draw_state_node_filter: String::new(),
+            draw_state_text_filter: String::new(),
             shader_routes_only_fallback: settings.shader_routes_only_fallback,
             renderer_config_open: settings.renderer_config_open,
             main_tab: settings.main_tab,
@@ -78,7 +90,7 @@ impl HudUiState {
     /// Projects process-local HUD state back onto the persisted config section.
     ///
     /// Returns `true` when this changed any persisted field.
-    pub fn write_to_settings(self, settings: &mut DebugHudSettings) -> bool {
+    pub fn write_to_settings(&self, settings: &mut DebugHudSettings) -> bool {
         let before = settings.clone();
         settings.scene_transforms_open = self.scene_transforms_open;
         settings.texture_debug_open = self.texture_debug_open;

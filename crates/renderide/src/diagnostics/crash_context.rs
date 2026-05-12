@@ -586,12 +586,41 @@ fn push_i64(out: &mut [u8], w: &mut usize, value: i64) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
+    use parking_lot::Mutex;
+
     use super::{
-        CrashContextSnapshot, GraphErrorKind, InitState, RenderMode, TargetMode, TickPhase,
-        format_snapshot_from, set_init_state, set_last_graph_error, set_last_host_frame_index,
-        set_prepared_view_count, set_render_mode, set_target_mode, set_tick_phase, snapshot,
-        write_minimal_snapshot,
+        BACKGROUND_IPC_DROP_STREAK, CrashContextSnapshot, DRIVER_BACKLOG, GraphErrorKind,
+        INIT_STATE, InitState, LAST_GRAPH_ERROR, LAST_HOST_FRAME_INDEX, PREPARED_VIEW_COUNT,
+        PRIMARY_IPC_DROP_STREAK, RENDER_MODE, RenderMode, TARGET_MODE, TICK_PHASE, TICK_SEQUENCE,
+        TargetMode, TickPhase, UPTIME_MS, format_snapshot_from, set_init_state,
+        set_last_graph_error, set_last_host_frame_index, set_prepared_view_count, set_render_mode,
+        set_target_mode, set_tick_phase, snapshot, write_minimal_snapshot,
     };
+
+    static CRASH_CONTEXT_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset_crash_context_for_test() {
+        UPTIME_MS.store(0, Ordering::Relaxed);
+        TICK_SEQUENCE.store(0, Ordering::Relaxed);
+        TICK_PHASE.store(TickPhase::Unknown as u8, Ordering::Relaxed);
+        RENDER_MODE.store(RenderMode::Unknown as u8, Ordering::Relaxed);
+        INIT_STATE.store(InitState::NotStarted as u8, Ordering::Relaxed);
+        TARGET_MODE.store(TargetMode::Unknown as u8, Ordering::Relaxed);
+        LAST_HOST_FRAME_INDEX.store(-1, Ordering::Relaxed);
+        PREPARED_VIEW_COUNT.store(0, Ordering::Relaxed);
+        PRIMARY_IPC_DROP_STREAK.store(0, Ordering::Relaxed);
+        BACKGROUND_IPC_DROP_STREAK.store(0, Ordering::Relaxed);
+        DRIVER_BACKLOG.store(0, Ordering::Relaxed);
+        LAST_GRAPH_ERROR.store(GraphErrorKind::None as u8, Ordering::Relaxed);
+    }
+
+    fn lock_reset_crash_context() -> parking_lot::MutexGuard<'static, ()> {
+        let guard = CRASH_CONTEXT_TEST_LOCK.lock();
+        reset_crash_context_for_test();
+        guard
+    }
 
     #[test]
     fn snapshot_format_includes_high_value_fields() {
@@ -620,6 +649,8 @@ mod tests {
 
     #[test]
     fn atomics_snapshot_round_trips_core_fields() {
+        let _guard = lock_reset_crash_context();
+
         set_tick_phase(TickPhase::AssetIntegration);
         set_render_mode(RenderMode::IpcDesktop);
         set_target_mode(TargetMode::Desktop);
@@ -639,6 +670,8 @@ mod tests {
 
     #[test]
     fn minimal_snapshot_is_ascii_and_includes_labels() {
+        let _guard = lock_reset_crash_context();
+
         set_tick_phase(TickPhase::Shutdown);
         set_render_mode(RenderMode::Headless);
         let mut out = [0u8; 512];

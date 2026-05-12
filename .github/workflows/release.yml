@@ -1,10 +1,9 @@
 # Nightly release pipeline.
 #
-# Picks the newest master commit that has passed both `rust-ci.yml` and
-# `dotnet-ci.yml`, builds platform binaries in release mode, and publishes a
-# GitHub Release with per-platform zips. The most recent release acts as the
-# "last good version" pointer - this workflow no-ops when no new green commit
-# has appeared since.
+# Picks the newest master commit that has passed `ci.yml`, builds platform
+# binaries in release mode, and publishes a GitHub Release with per-platform
+# zips. The most recent release acts as the "last good version" pointer - this
+# workflow no-ops when no new green commit has appeared since.
 name: Release
 
 "on":
@@ -43,30 +42,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Newest-first SHAs from each workflow's recent successful runs on master.
-          rust_shas=$(
-            gh api -X GET \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/rust-ci.yml/runs" \
-              -f branch=master -f status=success -F per_page=100 \
-              | jq -c '[.workflow_runs | sort_by(.created_at) | reverse | .[].head_sha]'
-          )
-          dotnet_shas=$(
-            gh api -X GET \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs" \
-              -f branch=master -f status=success -F per_page=100 \
-              | jq -c '[.workflow_runs | sort_by(.created_at) | reverse | .[].head_sha]'
-          )
-
-          # First SHA in rust_shas that also appears in dotnet_shas -> newest fully-green commit.
+          # Newest SHA from recent successful CI runs on master.
           candidate=$(
-            jq -r -n \
-              --argjson r "$rust_shas" \
-              --argjson d "$dotnet_shas" \
-              '($r - ($r - $d))[0] // ""'
+            gh api -X GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+              -f branch=master -f status=success -F per_page=100 \
+              | jq -r '[.workflow_runs | sort_by(.created_at) | reverse | .[].head_sha][0] // ""'
           )
 
           if [ -z "$candidate" ]; then
-            echo "No master commit has both rust-ci and dotnet-ci green; skipping." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "No master commit has CI green; skipping." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "should_release=false" >>"$GITHUB_OUTPUT"
             exit 0
           fi
@@ -120,7 +105,7 @@ jobs:
         with:
           ref: ${{ needs.select-commit.outputs.sha }}
 
-      # Mirror `rust-ci.yml` so the release build matches what was tested.
+      # Mirror `ci.yml` so the release build matches what was tested.
       # GStreamer headers gate the `video-textures` feature, which is not enabled
       # by default, but keeping the install aligned avoids feature drift later.
       - name: Install Linux system dependencies

@@ -1,9 +1,14 @@
 //! Scene transforms overlay: per-render-space world TRS tables.
 
-use imgui::{ListClipper, TabItem, TabItemFlags, TableFlags};
+use imgui::{ListClipper, TabItem, TabItemFlags, TableFlags, TreeNodeFlags};
 
 use crate::diagnostics::SceneTransformsSnapshot;
 use crate::diagnostics::snapshots::RenderSpaceTransformsSnapshot;
+use crate::shared::LayerType;
+
+const TAG_OVERLAY: [f32; 4] = [0.40, 1.00, 0.55, 1.00];
+const TAG_HIDDEN: [f32; 4] = [1.00, 0.55, 1.00, 1.00];
+const DIM: [f32; 4] = [0.55, 0.55, 0.55, 1.00];
 
 use super::super::layout::{self, Viewport, WindowSlot};
 use super::super::state::HudUiState;
@@ -50,10 +55,40 @@ impl HudWindow for SceneTransformsWindow {
     }
 
     fn body(&self, ui: &imgui::Ui, snapshot: Self::Data<'_>, state: &mut Self::State) {
-        if snapshot.spaces.is_empty() {
-            ui.text("No render spaces.");
+        // Self-diagnostic banner so "no spaces" is actionable: distinguishes "capture never fired"
+        // from "capture ran but had nothing".
+        if !snapshot.captured {
+            ui.text_colored(
+                [1.00, 0.55, 0.55, 1.00],
+                "Snapshot has never been captured.",
+            );
+            ui.text_disabled(
+                "Check Renderer config -> Scene transforms HUD is on AND F7 shows ImGui.",
+            );
             return;
         }
+        if snapshot.spaces.is_empty() {
+            ui.text_colored(
+                [1.00, 0.90, 0.40, 1.00],
+                format!(
+                    "Capture ran but produced 0 spaces (scene.render_space_count() = {}).",
+                    snapshot.scene_space_count
+                ),
+            );
+            if snapshot.scene_space_count > 0 {
+                ui.text_disabled(
+                    "Scene has spaces but iteration filtered them out -- this is a bug.",
+                );
+            } else {
+                ui.text_disabled("Scene genuinely empty -- waiting for host FrameSubmitData.");
+            }
+            return;
+        }
+        ui.text_disabled(format!(
+            "{} space(s) shown  (scene reports {})",
+            snapshot.spaces.len(),
+            snapshot.scene_space_count
+        ));
         if let Some(_bar) = ui.tab_bar("scene_transform_tabs") {
             for space in &snapshot.spaces {
                 let tab_label = format!("Space {}##tab_space_{}", space.space_id, space.space_id);
@@ -74,12 +109,54 @@ impl HudWindow for SceneTransformsWindow {
     }
 }
 
-/// Renders space header fields and the transform table for the active tab.
+/// Renders space header fields, the layer-assignments roll-up, and the transform table.
 fn scene_transform_space_tab(ui: &imgui::Ui, space: &RenderSpaceTransformsSnapshot) {
     ui.text(format!(
         "active={}  overlay={}  private={}",
         space.is_active, space.is_overlay, space.is_private
     ));
+
+    let overlay_count = space
+        .layer_assignments
+        .iter()
+        .filter(|e| e.layer == LayerType::Overlay)
+        .count();
+    let hidden_count = space
+        .layer_assignments
+        .iter()
+        .filter(|e| e.layer == LayerType::Hidden)
+        .count();
+    let header = format!(
+        "Layer assignments  ({} total, {} overlay, {} hidden)##layers_{}",
+        space.layer_assignments.len(),
+        overlay_count,
+        hidden_count,
+        space.space_id,
+    );
+    if ui.collapsing_header(&header, TreeNodeFlags::DEFAULT_OPEN) {
+        if space.layer_assignments.is_empty() {
+            ui.indent_by(8.0);
+            ui.text_disabled("(no LayerComponent registered against this space)");
+            ui.unindent_by(8.0);
+        } else {
+            let table_id = format!("layer_assignments##space_{}", space.space_id);
+            let flags = TableFlags::BORDERS | TableFlags::ROW_BG | TableFlags::SIZING_STRETCH_PROP;
+            if let Some(_t) = ui.begin_table_with_sizing(&table_id, 2, flags, [0.0, 0.0], 0.0) {
+                ui.table_setup_column("Node");
+                ui.table_setup_column("Layer");
+                ui.table_headers_row();
+                for entry in &space.layer_assignments {
+                    ui.table_next_row();
+                    ui.table_next_column();
+                    ui.text(format!("{}", entry.node_id));
+                    ui.table_next_column();
+                    layer_text(ui, Some(entry.layer));
+                }
+            }
+        }
+        ui.spacing();
+    }
+
     let rows = &space.rows;
     let n = rows.len();
     let table_id = format!("transforms##space_{}", space.space_id);
@@ -88,9 +165,10 @@ fn scene_transform_space_tab(ui: &imgui::Ui, space: &RenderSpaceTransformsSnapsh
         | TableFlags::SCROLL_Y
         | TableFlags::RESIZABLE
         | TableFlags::SIZING_STRETCH_PROP;
-    if let Some(_table) = ui.begin_table_with_sizing(&table_id, 5, table_flags, [0.0, 320.0], 0.0) {
+    if let Some(_table) = ui.begin_table_with_sizing(&table_id, 6, table_flags, [0.0, 320.0], 0.0) {
         ui.table_setup_column("ID");
         ui.table_setup_column("Parent");
+        ui.table_setup_column("Layer");
         ui.table_setup_column("Translation (world)");
         ui.table_setup_column("Rotation (xyzw)");
         ui.table_setup_column("Scale (world)");
@@ -105,6 +183,8 @@ fn scene_transform_space_tab(ui: &imgui::Ui, space: &RenderSpaceTransformsSnapsh
             ui.text(format!("{}", row.transform_id));
             ui.table_next_column();
             ui.text(format!("{}", row.parent_id));
+            ui.table_next_column();
+            layer_text(ui, row.resolved_layer);
             match &row.world {
                 None => {
                     ui.table_next_column();
@@ -133,5 +213,13 @@ fn scene_transform_space_tab(ui: &imgui::Ui, space: &RenderSpaceTransformsSnapsh
                 }
             }
         }
+    }
+}
+
+fn layer_text(ui: &imgui::Ui, layer: Option<LayerType>) {
+    match layer {
+        Some(LayerType::Overlay) => ui.text_colored(TAG_OVERLAY, "Overlay"),
+        Some(LayerType::Hidden) => ui.text_colored(TAG_HIDDEN, "Hidden"),
+        None => ui.text_colored(DIM, "--"),
     }
 }
