@@ -205,7 +205,7 @@ jobs:
             echo ""
             echo "Nightly build of [${SHA}](https://github.com/${GITHUB_REPOSITORY}/commit/${SHA})."
             echo ""
-            echo "Each zip contains the renderer (\`renderide\`), the launcher (\`bootstrapper\`), and the XR action manifests. A \`config.toml\` is created next to the binary on first launch."
+            echo "Each zip contains the renderer (\`renderide\`), the launcher (\`bootstrapper\`), and the XR action manifests."
           } > release-notes.md
 
       - uses: softprops/action-gh-release@v2
