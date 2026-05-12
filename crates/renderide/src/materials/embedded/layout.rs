@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn xiexe_baked_cubemap_binding_is_reflected() {
+    fn xiexe_layout_drops_xstoon3_extension_bindings() {
         let wgsl = crate::embedded_shaders::embedded_target_wgsl("xstoon2.0_default")
             .expect("xiexe target WGSL");
         let reflected = reflect_raster_material_wgsl(wgsl).expect("xiexe WGSL reflection");
@@ -165,13 +165,20 @@ mod tests {
             .values()
             .map(|n| shader_writer_unescaped_property_name(n).to_string())
             .collect();
-        assert!(
-            unmangled.iter().any(|n| n == "_BakedCubemap"),
-            "missing `_BakedCubemap` cube binding in xstoon2 layout: {unmangled:?}"
-        );
-        assert!(
-            unmangled.iter().any(|n| n == "_BakedCubemap_sampler"),
-            "missing `_BakedCubemap_sampler` in xstoon2 layout: {unmangled:?}"
-        );
+        for forbidden in [
+            "_BakedCubemap",
+            "_BakedCubemap_sampler",
+            "_DetailNormalMap",
+            "_DetailNormalMap_sampler",
+            "_DetailMask",
+            "_DetailMask_sampler",
+            "_SpecularMap",
+            "_SpecularMap_sampler",
+        ] {
+            assert!(
+                !unmangled.iter().any(|n| n == forbidden),
+                "xstoon 2.0 must not bind XSToon3 extension `{forbidden}`: {unmangled:?}"
+            );
+        }
     }
 }

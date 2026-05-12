@@ -128,7 +128,7 @@ The workspace lists six member crates in `Cargo.toml`. Each has a single, focuse
 | --- | --- | --- |
 | [`bootstrapper`](crates/bootstrapper) | binary plus library | Launches the host and the renderer, runs the bootstrap IPC loop, bridges process services such as clipboard access and the desktop-versus-VR launch dialog, and ties child process lifetimes together. |
 | [`interprocess`](crates/interprocess) | library | Cloudtoid-compatible shared-memory ring queues and semaphores. The transport every IPC channel rides on. Cross-platform mmap on Unix, named file mappings on Windows. |
-| [`logger`](crates/logger) | library | File-first logger shared by every process. Writes to `logs/<component>/<timestamp>.log` by default, with a `RENDERIDE_LOGS_ROOT` override. |
+| [`logger`](crates/logger) | library | File-first logger shared by every process. Writes to `logs/<component>/<timestamp>.log` under the runtime-selected log root, with a `RENDERIDE_LOGS_ROOT` override. |
 | [`renderide-shared`](crates/renderide-shared) | library | The host-renderer wire-format crate. Holds the generated shared types, the binary packing helpers, the dual-queue IPC wrappers (one for the host side, one for the renderer side), and the shared-memory accessor and writer. |
 | [`renderide`](crates/renderide) | two binaries plus library | The renderer itself. Owns winit, wgpu, OpenXR, the scene model, the render graph, materials, assets, profiling, and diagnostics. Builds the `renderide` binary (the renderer process) and the `roundtrip` binary (a small CLI used by the .NET generator's roundtrip tests to validate that Rust packing and C# packing agree on the bytes). |
 | [`renderide-test`](crates/renderide-test) | binary plus library | Headless integration harness. Acts as a minimal host, drives the real IPC protocol, spawns the renderer, captures its output, and validates the result against golden images and golden state machines. |
@@ -260,18 +260,17 @@ For C# code in the generator and the mod: throw specific exception types instead
 
 The renderer has two complementary visibility systems.
 
-The first is the file-first logger from the `logger` crate. Every process initializes it on startup and writes to its own subdirectory under `logs/`. The supported component names are `bootstrapper`, `host` (captured host stdout and stderr), `renderer`, `renderer-test`, and `SharedTypeGenerator`. Log files are named with a UTC timestamp so they sort and can be compared across runs. The location can be redirected with `RENDERIDE_LOGS_ROOT`. The recommended levels are `error` for unrecoverable failures, `warn` for recoverable anomalies, `info` for lifecycle events, `debug` for per-frame and per-asset control flow (the default), and `trace` for tight loops and high-frequency paths.
+The first is the file-first logger from the `logger` crate. Every process initializes it on startup and writes to its own subdirectory under the runtime-selected log root. Local checkout runs prefer `Renderide/logs`; release binaries use the current user's platform log directory unless `RENDERIDE_LOGS_ROOT` is set. The supported component names are `bootstrapper`, `host` (captured host stdout and stderr), `renderer`, `renderer-test`, and `SharedTypeGenerator`. Log files are named with a UTC timestamp so they sort and can be compared across runs. The recommended levels are `error` for unrecoverable failures, `warn` for recoverable anomalies, `info` for lifecycle events, `debug` for per-frame and per-asset control flow (the default), and `trace` for tight loops and high-frequency paths.
 
 The second is the in-renderer diagnostics overlay built with Dear ImGui. It surfaces per-frame timings, per-view information, scene and asset inspection, host process metrics, encoder errors, and a watchdog. The overlay reads from snapshots captured at layer boundaries rather than borrowing live state from the renderer, which keeps the overlay safe to run alongside the per-frame work it is observing.
 
 ### 2.9 Continuous integration
 
-Two GitHub Actions workflows live under `.github/workflows/`.
+The main check workflow lives under `.github/workflows/`.
 
-- `rust-ci.yml` builds and tests the Rust workspace on Ubuntu, Windows, and macOS in parallel. Linux is the only matrix entry that uses `--all-features`, because GStreamer dev packages are reliably installable from the system package manager only on Linux. Windows and macOS still build the `tracy` feature so it stays warning-free on those platforms. The Linux job also installs Vulkan tooling so the `materials::registry` smoke test can find an adapter.
-- `dotnet-ci.yml` builds the .NET solution on the same three OSes, runs the generator's unit and roundtrip tests, and verifies formatting on Linux only (Windows checkouts can disagree with the in-repo encoding because of `core.autocrlf`, so format checks would fail spuriously there).
+- `ci.yml` builds and tests the Rust workspace and the .NET solution as independent jobs, each with Ubuntu, Windows, and macOS matrix entries so the Rust and .NET checks can run in parallel. Linux is the only Rust matrix entry that uses `--all-features`, because GStreamer dev packages are reliably installable from the system package manager only on Linux. Windows and macOS still build the `tracy` feature so it stays warning-free on those platforms. The Linux Rust job also installs Vulkan tooling so the `materials::registry` smoke test can find an adapter. The .NET job runs the generator's unit and roundtrip tests, and verifies formatting on Linux only (Windows checkouts can disagree with the in-repo encoding because of `core.autocrlf`, so format checks would fail spuriously there).
 
-Both workflows trigger on push to `main` or `master`, on pull requests, and on manual dispatch.
+The CI workflow triggers on push to `main` or `master`, on pull requests, and on manual dispatch.
 
 ---
 

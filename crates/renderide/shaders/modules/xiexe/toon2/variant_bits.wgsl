@@ -137,24 +137,18 @@ fn thickness_enabled() -> bool {
     return kw_RAMPMASK_OUTLINEMASK_THICKNESS();
 }
 
-/// True when matcap mode is selected, either via the `MATCAP` keyword or `_ReflectionMode == 2`.
+/// True when matcap mode is selected via the `MATCAP` keyword. XSToon 2.0 has no
+/// `_ReflectionMode` enum -- the `_ReflectionMode == 0/1/2/3` switch in
+/// `XSLightingFunctions.cginc:222, 235` is fully commented out in the upstream 2.0
+/// reference, leaving the `MATCAP` keyword as the only opt-in branch.
 fn matcap_enabled() -> bool {
-    return kw_MATCAP() || abs(xb::mat._ReflectionMode - 2.0) < 0.5;
+    return kw_MATCAP();
 }
 
-/// True when the reflection mode explicitly disables indirect specular.
-fn reflection_disabled() -> bool {
-    return !kw_MATCAP() && abs(xb::mat._ReflectionMode - 3.0) < 0.5;
-}
-
-/// True when the reflection mode selects the per-material baked-cubemap branch.
-fn baked_cubemap_enabled() -> bool {
-    return !kw_MATCAP() && abs(xb::mat._ReflectionMode - 1.0) < 0.5;
-}
-
-/// True when the shader should use the skybox/PBR reflection branch (`_ReflectionMode == 0`).
+/// True when the shader should use the skybox/PBR reflection branch (the default in
+/// Unity 2.0 whenever `MATCAP` is not set).
 fn reflection_uses_pbr() -> bool {
-    return !reflection_disabled() && !matcap_enabled() && !baked_cubemap_enabled();
+    return !matcap_enabled();
 }
 
 /// True when vertex-color albedo tinting is enabled via the variant keyword.

@@ -181,6 +181,15 @@ mod tests {
     }
 
     #[test]
+    fn route_plan_preserves_variant_bits_for_pbslerpspecular() {
+        let r = plan_shader_route(Some("pbslerpspecular".to_string()), Some(0xB1));
+
+        assert_eq!(r.shader_asset_name.as_deref(), Some("pbslerpspecular"));
+        assert_eq!(r.shader_variant_bits, Some(0xB1));
+        assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
+    }
+
+    #[test]
     fn route_plan_uses_null_for_unknown_name() {
         let r = plan_shader_route(Some("definitely_missing_shader".to_string()), None);
 

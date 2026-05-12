@@ -5,7 +5,8 @@ A modern Rust + wgpu renderer for [Resonite](https://store.steampowered.com/app/
 ## Status
 
 Experimental: performance, stability, and platform support are still evolving.
-Visual bugs and missing features are expected.
+*Visual bugs and missing features are expected.*
+Please report bugs you encounter and feature requests as GitHub issues. 
 
 ## What is Renderide
 

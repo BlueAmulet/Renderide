@@ -1,10 +1,12 @@
 //! **Renderer config** HUD window -- editable [`crate::config::RendererSettings`] with immediate
 //! disk sync.
 //!
-//! Merges what used to live in three files (the window envelope, the four-tab body, and the
+//! Merges what used to live in three files (the window envelope, the five-tab body, and the
 //! Post-Processing tab body) into one [`HudWindow`] impl with private section helpers per tab.
 
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus};
 
 use imgui::{Drag, TabItem, TabItemFlags};
 
@@ -23,6 +25,23 @@ const MAX_ASSET_INTEGRATION_BUDGET_MS: u32 = 100;
 const MIN_WATCHDOG_POLL_INTERVAL_MS: u32 = 10;
 const MAX_WATCHDOG_POLL_INTERVAL_MS: u32 = 10_000;
 const MAX_WATCHDOG_THRESHOLD_MS: u32 = 600_000;
+
+#[derive(Debug, thiserror::Error)]
+enum OpenLogFolderError {
+    #[error("failed to spawn {program} for {path}: {source}")]
+    Spawn {
+        program: &'static str,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("{program} failed for {path} with status {status}")]
+    ExitStatus {
+        program: &'static str,
+        path: PathBuf,
+        status: ExitStatus,
+    },
+}
 
 /// Inputs for [`RendererConfigWindow`]: live settings handle, disk save target, and the
 /// startup-extract failure flag.
@@ -103,7 +122,7 @@ impl HudWindow for RendererConfigWindow {
     }
 }
 
-/// Body of **Renderer config**: tabbed groups (Display / Rendering / Debug / Post-Processing) and
+/// Body of **Renderer config**: tabbed groups (Display / Rendering / Debug / Post-Processing / Experimental) and
 /// immediate disk save.
 ///
 /// Each tab body marks a shared `dirty` flag; once any tab modifies a setting, the whole
@@ -149,6 +168,9 @@ fn renderer_config_panel_body(
                     DebugHudRendererConfigTab::Debug => debug_section(ui, g, &mut dirty),
                     DebugHudRendererConfigTab::PostProcessing => {
                         post_processing_section(ui, g, &mut dirty);
+                    }
+                    DebugHudRendererConfigTab::Experimental => {
+                        experimental_section(ui, g, &mut dirty);
                     }
                 }
             }
@@ -403,6 +425,13 @@ fn debug_diagnostics_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &m
     if ui.checkbox("Log verbose", &mut g.debug.log_verbose) {
         *dirty = true;
     }
+    let logs_root = logger::logs_root();
+    ui.text_wrapped(format!("Log folder: {}", logs_root.display()));
+    if ui.small_button("Open log folder")
+        && let Err(e) = open_log_folder(&logs_root)
+    {
+        logger::warn!("Failed to open log folder: {e}");
+    }
     if ui.checkbox("GPU validation layers", &mut g.debug.gpu_validation_layers) {
         *dirty = true;
     }
@@ -422,6 +451,38 @@ fn debug_diagnostics_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &m
         }
     }
     ui.unindent();
+}
+
+fn log_folder_opener_program() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    }
+}
+
+fn open_log_folder(path: &Path) -> Result<(), OpenLogFolderError> {
+    let program = log_folder_opener_program();
+    let status =
+        Command::new(program)
+            .arg(path)
+            .status()
+            .map_err(|source| OpenLogFolderError::Spawn {
+                program,
+                path: path.to_path_buf(),
+                source,
+            })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(OpenLogFolderError::ExitStatus {
+            program,
+            path: path.to_path_buf(),
+            status,
+        })
+    }
 }
 
 fn watchdog_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
@@ -473,6 +534,22 @@ fn watchdog_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) 
             *dirty = true;
         }
     }
+    ui.unindent();
+}
+
+/// Experimental feature flags.
+fn experimental_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
+    ui.text("Experimental");
+    ui.indent();
+    if ui.checkbox(
+        "Use reflection probe SH2",
+        &mut g.experimental.reflection_probe_sh2_enabled,
+    ) {
+        *dirty = true;
+    }
+    ui.text_disabled(
+        "When disabled, reflection probes contribute specular reflections only; diffuse SH2 comes from AmbientLightSH2.",
+    );
     ui.unindent();
 }
 
@@ -820,4 +897,22 @@ fn post_processing_tonemap(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
         "ACES Fitted is filmic with stronger hue shifts. AgX is more neutral. `None` skips \
          tonemapping (HDR pass-through; values >1 will clip in the swapchain).",
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::log_folder_opener_program;
+
+    #[test]
+    fn log_folder_opener_program_matches_platform() {
+        let expected = if cfg!(target_os = "windows") {
+            "explorer"
+        } else if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+
+        assert_eq!(log_folder_opener_program(), expected);
+    }
 }

@@ -54,10 +54,10 @@ fn vertex_main(
     return out;
 }
 
-/// Builds a perturbed TBN from the interpolated geometry frame. The base normal map and
-/// (when `_DetailMask.r > 0`) the detail normal map are blended in tangent space using
-/// Unity's `BlendNormals` formula -- `xy` adds, `z` multiplies -- so content authored
-/// against Unity's `BlendNormals` (`#include UnityCG.cginc`) reproduces.
+/// Builds a perturbed TBN from the interpolated geometry frame. When the `NORMAL_MAP`
+/// keyword is set, `_BumpMap` is sampled and decoded via Unity's `UnpackScaleNormal`
+/// (`XSHelperFunctions.cginc:1-27`). Detail-normal blending is an XSToon3 feature absent
+/// from 2.0 and is not performed here.
 ///
 /// `flip_back_face` toggles the dual-sided correction. The forward path passes `true` so
 /// back-facing fragments of two-sided meshes light from the visible side; the outline
@@ -65,8 +65,6 @@ fn vertex_main(
 /// extruded shell whose geometric normals already face outward.
 fn decode_normal_world(
     uv_normal: vec2<f32>,
-    uv_detail_normal: vec2<f32>,
-    uv_detail_mask: vec2<f32>,
     world_n: vec3<f32>,
     world_t: vec3<f32>,
     world_b: vec3<f32>,
@@ -88,20 +86,8 @@ fn decode_normal_world(
             textureSample(xb::_BumpMap, xb::_BumpMap_sampler, uv_normal),
             xb::mat._BumpScale,
         );
-        let detail_mask = textureSample(xb::_DetailMask, xb::_DetailMask_sampler, uv_detail_mask).r;
-        let detail_ts = nd::decode_ts_normal_with_placeholder_sample(
-            textureSample(xb::_DetailNormalMap, xb::_DetailNormalMap_sampler, uv_detail_normal),
-            xb::mat._DetailNormalMapScale,
-        );
-        let blended_ts = xb::safe_normalize(
-            vec3<f32>(
-                base_ts.xy + detail_ts.xy * detail_mask,
-                base_ts.z * mix(1.0, detail_ts.z, detail_mask),
-            ),
-            vec3<f32>(0.0, 0.0, 1.0),
-        );
         let tbn = mat3x3<f32>(t, b, n);
-        n = xb::safe_normalize(tbn * blended_ts, n);
+        n = xb::safe_normalize(tbn * base_ts, n);
         t = xb::safe_normalize(cross(b, n), t);
         b = xb::safe_normalize(cross(n, t), b);
     }
@@ -125,14 +111,11 @@ fn sample_surface(
 ) -> xb::SurfaceData {
     let uv_albedo = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetAlbedo), xb::mat._MainTex_ST);
     let uv_normal = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetNormal), xb::mat._BumpMap_ST);
-    let uv_detail_normal = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetDetNormal), xb::mat._DetailNormalMap_ST);
-    let uv_detail_mask = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetDetMask), xb::mat._DetailMask_ST);
     let uv_metallic = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetMetallic), xb::mat._MetallicGlossMap_ST);
     let uv_emission = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetEmission), xb::mat._EmissionMap_ST);
     let uv_occlusion = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetOcclusion), xb::mat._OcclusionMap_ST);
     let uv_thickness = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetThickness), xb::mat._ThicknessMap_ST);
     let uv_reflectivity = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetReflectivity), xb::mat._ReflectivityMask_ST);
-    let uv_specular = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetSpecular), xb::mat._SpecularMap_ST);
 
     var albedo = textureSample(xb::_MainTex, xb::_MainTex_sampler, uv_albedo) * xb::mat._Color;
     let clip_alpha = xb::mat._Color.a * acs::texture_alpha_base_mip(xb::_MainTex, xb::_MainTex_sampler, uv_albedo);
@@ -152,8 +135,6 @@ fn sample_surface(
 
     let tbn = decode_normal_world(
         uv_normal,
-        uv_detail_normal,
-        uv_detail_mask,
         world_n,
         world_t,
         world_b,
@@ -170,8 +151,6 @@ fn sample_surface(
     }
     var roughness = 1.0 - smoothness;
     roughness = clamp(roughness * (1.7 - 0.7 * roughness), 0.045, 1.0);
-    let clearcoat_strength = clamp(xb::mat._ClearcoatStrength * mg.b, 0.0, 1.0);
-    let clearcoat_smoothness = clamp(xb::mat._ClearcoatSmoothness * mg.g, 0.0, 1.0);
 
     // Direct-lighting albedo is the metallic-discounted tinted base -- `BRDF_XSLighting:33`
     // does `i.albedo.rgb *= (1 - metallic)` before the lighting walk so a perfect metal
@@ -203,8 +182,6 @@ fn sample_surface(
         thickness = textureSample(xb::_ThicknessMap, xb::_ThicknessMap_sampler, uv_thickness).r;
     }
 
-    let specular_mask = textureSample(xb::_SpecularMap, xb::_SpecularMap_sampler, uv_specular);
-
     return xb::SurfaceData(
         albedo,
         clip_alpha,
@@ -216,14 +193,11 @@ fn sample_surface(
         metallic,
         roughness,
         smoothness,
-        clearcoat_strength,
-        clearcoat_smoothness,
         reflectivity,
         reflectivity_mask,
         occlusion,
         emission,
         ramp_mask,
         thickness,
-        specular_mask,
     );
 }

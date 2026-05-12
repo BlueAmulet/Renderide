@@ -31,6 +31,24 @@ const DEFAULT_REFLECTION_PROBE_FACE_SIZE: u32 = 256;
 /// First atlas slot is reserved as a non-sampled black fallback.
 const FIRST_PROBE_ATLAS_SLOT: u16 = 1;
 
+/// Inputs for advancing specular reflection-probe IBL and selection state.
+pub(crate) struct ReflectionProbeSpecularMaintainParams<'a> {
+    /// GPU context used for IBL jobs and atlas writes.
+    pub(crate) gpu: &'a mut GpuContext,
+    /// Scene snapshot containing render spaces and reflection-probe entries.
+    pub(crate) scene: &'a SceneCoordinator,
+    /// Material registry used to resolve skybox material sources.
+    pub(crate) materials: &'a MaterialSystem,
+    /// Asset queues and pools used to resolve uploaded cubemaps.
+    pub(crate) assets: &'a AssetTransferQueue,
+    /// Render context used for reflection-probe world transform lookup.
+    pub(crate) render_context: crate::shared::RenderingContext,
+    /// SH2 projection service used when reflection-probe diffuse SH is enabled.
+    pub(crate) sh2_system: &'a mut ReflectionProbeSh2System,
+    /// Whether reflection probes should contribute SH2 indirect diffuse lighting.
+    pub(crate) reflection_probe_sh2_enabled: bool,
+}
+
 /// Specular reflection-probe bake/cache/selection system.
 pub struct ReflectionProbeSpecularSystem {
     ibl_cache: SkyboxIblCache,
@@ -93,25 +111,38 @@ impl ReflectionProbeSpecularSystem {
     }
 
     /// Advances GPU bakes, updates the atlas, and rebuilds the CPU selection index.
-    pub fn maintain(
-        &mut self,
-        gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
-        materials: &MaterialSystem,
-        assets: &AssetTransferQueue,
-        render_context: crate::shared::RenderingContext,
-        sh2_system: &mut ReflectionProbeSh2System,
-    ) {
+    pub(crate) fn maintain(&mut self, mut params: ReflectionProbeSpecularMaintainParams<'_>) {
         profiling::scope!("reflection_probes::specular::maintain");
-        self.ibl_cache.maintain_completed_jobs(gpu.device());
-        let face_size = clamp_face_size(DEFAULT_REFLECTION_PROBE_FACE_SIZE, gpu.limits());
-        let mut active_keys = HashSet::new();
-        let mut active_capture_keys = HashSet::new();
-        let mut ready = Vec::new();
-        let mut skybox_fallbacks = Vec::new();
+        self.ibl_cache.maintain_completed_jobs(params.gpu.device());
+        let face_size = clamp_face_size(DEFAULT_REFLECTION_PROBE_FACE_SIZE, params.gpu.limits());
+        let mut collected = CollectedProbeResources::default();
 
-        for space_id in scene.render_space_ids() {
-            let Some(space) = scene.space(space_id) else {
+        self.collect_probe_resources(&mut params, face_size, &mut collected);
+        self.captures.retain_active(&collected.active_capture_keys);
+        self.ibl_cache
+            .prune_completed_except(&collected.active_keys);
+        collected.ready.sort_unstable_by_key(|probe| {
+            (probe.identity.space_id.0, probe.identity.renderable_index)
+        });
+        collected
+            .skybox_fallbacks
+            .sort_unstable_by_key(|fallback| fallback.space_id.0);
+        self.sync_atlas_and_selection(
+            params.gpu,
+            face_size,
+            collected.ready,
+            collected.skybox_fallbacks,
+        );
+    }
+
+    fn collect_probe_resources(
+        &mut self,
+        params: &mut ReflectionProbeSpecularMaintainParams<'_>,
+        face_size: u32,
+        collected: &mut CollectedProbeResources,
+    ) {
+        for space_id in params.scene.render_space_ids() {
+            let Some(space) = params.scene.space(space_id) else {
                 continue;
             };
             if !space.is_active() {
@@ -119,15 +150,19 @@ impl ReflectionProbeSpecularSystem {
             }
             if let Some(source) = resolve_space_skybox_fallback_source(
                 space.skybox_material_asset_id(),
-                materials,
-                assets,
+                params.materials,
+                params.assets,
             ) {
                 let key = build_key(&source, face_size);
-                active_keys.insert(key.clone());
-                let sh2 = sh2_system.ensure_ibl_source(space_id.0, &source);
-                self.ibl_cache.ensure_source(gpu, key.clone(), source);
+                collected.active_keys.insert(key.clone());
+                let sh2 = params
+                    .reflection_probe_sh2_enabled
+                    .then(|| params.sh2_system.ensure_ibl_source(space_id.0, &source))
+                    .flatten();
+                self.ibl_cache
+                    .ensure_source(params.gpu, key.clone(), source);
                 if let Some(cube) = self.ibl_cache.completed_cube(&key) {
-                    skybox_fallbacks.push(ReadySkyboxFallback {
+                    collected.skybox_fallbacks.push(ReadySkyboxFallback {
                         space_id,
                         key,
                         texture: cube.texture.clone(),
@@ -142,39 +177,49 @@ impl ReflectionProbeSpecularSystem {
                     renderable_index: probe.renderable_index,
                 };
                 if probe.state.r#type == crate::shared::ReflectionProbeType::OnChanges {
-                    active_capture_keys.insert(RuntimeReflectionProbeCaptureKey {
-                        space_id,
-                        renderable_index: probe.renderable_index,
-                    });
+                    collected
+                        .active_capture_keys
+                        .insert(RuntimeReflectionProbeCaptureKey {
+                            space_id,
+                            renderable_index: probe.renderable_index,
+                        });
                 }
                 let Some(source) = resolve_probe_source(
                     space_id,
                     space.skybox_material_asset_id(),
                     probe,
-                    materials,
-                    assets,
+                    params.materials,
+                    params.assets,
                     &self.captures,
                 ) else {
                     continue;
                 };
                 let key = build_key(&source, face_size);
-                active_keys.insert(key.clone());
-                let sh2 = sh2_system.ensure_ibl_source(space_id.0, &source);
-                self.ibl_cache.ensure_source(gpu, key.clone(), source);
+                collected.active_keys.insert(key.clone());
+                let sh2 = params
+                    .reflection_probe_sh2_enabled
+                    .then(|| params.sh2_system.ensure_ibl_source(space_id.0, &source))
+                    .flatten();
+                self.ibl_cache
+                    .ensure_source(params.gpu, key.clone(), source);
                 let Some(cube) = self.ibl_cache.completed_cube(&key) else {
                     continue;
                 };
-                let Some(sh2) = sh2 else {
+                if params.reflection_probe_sh2_enabled && sh2.is_none() {
+                    continue;
+                }
+                let Some(spatial) = spatial_probe_for_state(
+                    params.scene,
+                    space_id,
+                    probe,
+                    params.render_context,
+                    0,
+                ) else {
                     continue;
                 };
-                let Some(spatial) =
-                    spatial_probe_for_state(scene, space_id, probe, render_context, 0)
-                else {
-                    continue;
-                };
-                let mut metadata = metadata_for_spatial(&spatial, probe.state, &sh2);
+                let mut metadata = metadata_for_spatial(&spatial, probe.state, sh2.as_ref());
                 metadata.params[1] = cube.mip_levels.saturating_sub(1) as f32;
-                ready.push(ReadyProbe {
+                collected.ready.push(ReadyProbe {
                     identity,
                     key,
                     texture: cube.texture.clone(),
@@ -184,13 +229,6 @@ impl ReflectionProbeSpecularSystem {
                 });
             }
         }
-        self.captures.retain_active(&active_capture_keys);
-        self.ibl_cache.prune_completed_except(&active_keys);
-        ready.sort_unstable_by_key(|probe| {
-            (probe.identity.space_id.0, probe.identity.renderable_index)
-        });
-        skybox_fallbacks.sort_unstable_by_key(|fallback| fallback.space_id.0);
-        self.sync_atlas_and_selection(gpu, face_size, ready, skybox_fallbacks);
     }
 
     /// Current frame-global GPU resources, if allocated.
@@ -503,4 +541,12 @@ struct ReadySkyboxFallback {
     texture: Arc<wgpu::Texture>,
     mip_levels: u32,
     sh2: Option<RenderSH2>,
+}
+
+#[derive(Default)]
+struct CollectedProbeResources {
+    active_keys: HashSet<SkyboxIblKey>,
+    active_capture_keys: HashSet<RuntimeReflectionProbeCaptureKey>,
+    ready: Vec<ReadyProbe>,
+    skybox_fallbacks: Vec<ReadySkyboxFallback>,
 }

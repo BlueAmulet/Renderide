@@ -287,8 +287,8 @@ mod tests {
 #[cfg(test)]
 mod queue_loop_tests {
     use std::process::Child;
+    use std::sync::Mutex;
     use std::sync::atomic::AtomicBool;
-    use std::sync::{Mutex, MutexGuard};
     use std::time::Instant;
 
     use super::queue_loop;
@@ -298,21 +298,16 @@ mod queue_loop_tests {
         BootstrapQueues, RENDERIDE_INTERPROCESS_DIR_ENV,
         open_bootstrap_queues_host_publisher_first, open_bootstrap_queues_with_host_endpoints,
     };
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn lock_env() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().expect("env lock")
-    }
+    use crate::test_env::lock_interprocess_env;
 
     #[test]
     fn queue_loop_returns_immediately_when_cancel_pre_set() {
-        let _g = lock_env();
+        let _g = lock_interprocess_env();
         let tmp =
             std::env::temp_dir().join(format!("bootstrapper_ql_cancel_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).expect("mkdir");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
@@ -335,7 +330,7 @@ mod queue_loop_tests {
             &renderer,
         );
 
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -344,11 +339,11 @@ mod queue_loop_tests {
 
     #[test]
     fn queue_loop_exits_on_shutdown_from_host_publisher() {
-        let _g = lock_env();
+        let _g = lock_interprocess_env();
         let tmp = std::env::temp_dir().join(format!("bootstrapper_ql_sd_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).expect("mkdir");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
@@ -384,7 +379,7 @@ mod queue_loop_tests {
         );
 
         drop(host_publisher);
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -396,11 +391,11 @@ mod queue_loop_tests {
     /// runs end-to-end via the real `Subscriber::dequeue` + `dispatch_command` chain.
     #[test]
     fn queue_loop_handles_heartbeat_then_shutdown() {
-        let _g = lock_env();
+        let _g = lock_interprocess_env();
         let tmp = std::env::temp_dir().join(format!("bootstrapper_ql_hb_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).expect("mkdir");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
@@ -443,7 +438,7 @@ mod queue_loop_tests {
         );
 
         drop(host_publisher);
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -456,11 +451,11 @@ mod queue_loop_tests {
     /// dispatch path produced a response (empty UTF-8 on backend failure) and the loop continued.
     #[test]
     fn queue_loop_handles_gettext_then_shutdown() {
-        let _g = lock_env();
+        let _g = lock_interprocess_env();
         let tmp = std::env::temp_dir().join(format!("bootstrapper_ql_gt_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).expect("mkdir");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
@@ -507,7 +502,7 @@ mod queue_loop_tests {
 
         drop(host_publisher);
         drop(host_subscriber);
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }

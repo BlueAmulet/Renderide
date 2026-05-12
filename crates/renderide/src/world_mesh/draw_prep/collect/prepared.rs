@@ -6,6 +6,7 @@ use glam::{Mat4, Vec3};
 
 use crate::materials::RasterFrontFace;
 use crate::scene::{RenderSpaceId, SkinnedMeshRenderer};
+use crate::shared::LayerType;
 
 use crate::world_mesh::culling::{
     CpuCullFailure, MeshCullTarget, mesh_cpu_cull_with_geometry,
@@ -77,23 +78,50 @@ impl<'a> PreparedRunSkinning<'a> {
     }
 }
 
-/// Returns whether the renderer run passes the view's optional transform filter.
+/// Returns whether the renderer run passes the view's optional transform filter and
+/// Hidden / private-space cull. **Must stay in lockstep with the scene-walk equivalent in
+/// [`super::scene_walk::per_renderer`]** -- the runtime picks one path or the other based on
+/// whether [`DrawCollectionContext::prepared`] is populated for the frame, and both paths must
+/// produce identical visibility decisions or the dash inner UI will ghost at world position
+/// whenever the prepared path is active.
 fn prepared_run_passes_filter(
     first: &FramePreparedDraw,
     ctx: &DrawCollectionContext<'_>,
     filter_masks: &HashMap<RenderSpaceId, Vec<bool>>,
 ) -> bool {
-    let Some(filter) = ctx.transform_filter else {
-        return true;
-    };
-    match filter_masks.get(&first.space_id) {
-        Some(mask) => {
-            first.node_id >= 0
-                && (first.node_id as usize) < mask.len()
-                && mask[first.node_id as usize]
-        }
-        None => filter.passes_scene_node(ctx.scene, first.space_id, first.node_id),
+    if let Some(filter) = ctx.transform_filter {
+        return match filter_masks.get(&first.space_id) {
+            Some(mask) => {
+                first.node_id >= 0
+                    && (first.node_id as usize) < mask.len()
+                    && mask[first.node_id as usize]
+            }
+            None => filter.passes_scene_node(ctx.scene, first.space_id, first.node_id),
+        };
     }
+    // No transform filter -> this is the main / HMD view. Apply Hidden + private-space cull
+    // using `transform_special_layer` (which returns `None` for world meshes vs `Some(Hidden)`
+    // for renderers under a Hidden-tagged ancestor; the renderer-level `layer` field cannot
+    // distinguish those two cases because `LayerType::default() == Hidden`).
+    if first.node_id < 0 {
+        return true;
+    }
+    let special_layer = ctx
+        .scene
+        .transform_special_layer(first.space_id, first.node_id as usize);
+    if matches!(special_layer, Some(LayerType::Hidden)) {
+        return false;
+    }
+    if special_layer != Some(LayerType::Overlay) {
+        let space_is_private = ctx
+            .scene
+            .space(first.space_id)
+            .is_some_and(|s| s.is_private());
+        if space_is_private {
+            return false;
+        }
+    }
+    true
 }
 
 /// Returns the skinned renderer backing a prepared run, or `None` when stale scene indices should skip it.

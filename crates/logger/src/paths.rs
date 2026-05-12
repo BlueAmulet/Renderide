@@ -1,26 +1,38 @@
-//! Resolves `Renderide/logs/<component>/`, applies the `RENDERIDE_LOGS_ROOT` override, and wires
+//! Resolves the runtime logs root, applies the `RENDERIDE_LOGS_ROOT` override, and wires
 //! [`init_for`] to the global file sink in [`crate::output`].
 
-use std::ffi::OsStr;
+use std::env;
+use std::ffi::{OsStr, OsString};
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::level::LogLevel;
 use crate::output;
 
-/// Environment variable that overrides the default `Renderide/logs` root directory.
+/// Environment variable that overrides the default Renderide logs root directory.
 pub const LOGS_ROOT_ENV: &str = "RENDERIDE_LOGS_ROOT";
 
-/// Failure to resolve the default `Renderide/logs` root from a crate manifest path.
+const APP_DIR_NAME: &str = "renderide";
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const USER_DIR_NAME: &str = "Renderide";
+
+static SELECTED_LOGS_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Failure to resolve a default Renderide logs root.
 #[derive(Debug, thiserror::Error)]
 pub enum LogsRootError {
-    /// `manifest_dir` did not have enough ancestors to reach the workspace `Renderide/` directory.
+    /// Compatibility variant preserved for callers that matched the old manifest-path failure.
     #[error(
-        "logger manifest path must live under .../Renderide/crates/logger (need 3+ path segments); got {manifest_dir:?}"
+        "logger manifest path did not resolve to a Renderide workspace root; got {manifest_dir:?}"
     )]
     ManifestPathTooShort {
-        /// Path passed to [`logs_root_with`].
+        /// Path that failed to resolve to a workspace root.
         manifest_dir: PathBuf,
     },
+    /// No runtime fallback root was available.
+    #[error("no Renderide log root candidate was available")]
+    NoCandidates,
 }
 
 /// Which part of the system produces a log stream under [`logs_root`] / `<component>/`.
@@ -57,48 +69,35 @@ impl std::fmt::Display for LogComponent {
 /// Resolves where all Renderide logs live, for use in tests without touching process environment.
 ///
 /// If `override_root` is [`Some`], that path is used as the logs root (same role as the
-/// `RENDERIDE_LOGS_ROOT` environment variable). Otherwise `manifest_dir` must be
-/// `.../Renderide/crates/logger`;
-/// [`Path::ancestors`] yields `logger` -> `crates` -> `Renderide`, so index `2` is the repository root.
+/// `RENDERIDE_LOGS_ROOT` environment variable). Otherwise `start` and its ancestors are searched
+/// for a Renderide workspace root; if none is found, the per-user and temporary fallbacks are used.
 pub fn logs_root_with(
-    manifest_dir: &Path,
+    start: &Path,
     override_root: Option<&OsStr>,
 ) -> Result<PathBuf, LogsRootError> {
-    if let Some(root) = override_root {
-        return Ok(PathBuf::from(root));
-    }
-    let renderide_root =
-        manifest_dir
-            .ancestors()
-            .nth(2)
-            .ok_or_else(|| LogsRootError::ManifestPathTooShort {
-                manifest_dir: manifest_dir.to_path_buf(),
-            })?;
-    Ok(renderide_root.join("logs"))
+    default_logs_root_candidates(
+        &[start.to_path_buf()],
+        override_root.and_then(non_empty_path),
+        per_user_logs_root(),
+        None,
+        temp_logs_root(),
+    )
+    .into_iter()
+    .next()
+    .ok_or(LogsRootError::NoCandidates)
 }
 
 /// Root directory containing per-component folders (`bootstrapper`, `host`, `renderer`,
 /// `renderer-test`).
 ///
-/// By default this is `Renderide/logs` next to the workspace `crates/` directory. If the
-/// `RENDERIDE_LOGS_ROOT` environment variable is set, that path is used instead (no subdirectory
-/// insertion; you get exactly that folder as the root for all components).
+/// If logging has already been initialized through [`init_for`], this returns the selected root
+/// from that successful initialization. Otherwise the root is chosen at runtime: an explicit
+/// `RENDERIDE_LOGS_ROOT`, a discovered checkout `logs` directory, a per-user logs directory, an
+/// executable-adjacent `logs` directory, then a temp-directory fallback.
 pub fn logs_root() -> PathBuf {
-    logs_root_with(
-        Path::new(env!("CARGO_MANIFEST_DIR")),
-        std::env::var_os(LOGS_ROOT_ENV).as_deref(),
-    )
-    .unwrap_or_else(|e| {
-        // Can't route through the logger -- this is the logger bootstrap path.
-        #[expect(
-            clippy::print_stderr,
-            reason = "logger not yet initialized at bootstrap"
-        )]
-        {
-            eprintln!("Renderide logger: {e}; using fallback logs directory");
-        };
-        std::env::current_dir().map_or_else(|_| PathBuf::from("logs"), |p| p.join("logs"))
-    })
+    selected_logs_root()
+        .or_else(|| log_root_candidates().into_iter().next())
+        .unwrap_or_else(temp_logs_root)
 }
 
 /// `logs_root()` joined with [`LogComponent::subdir`].
@@ -116,6 +115,217 @@ pub fn log_dir_for(component: LogComponent) -> PathBuf {
 pub fn log_file_path(component: LogComponent, timestamp: &str) -> PathBuf {
     let safe = sanitize_timestamp(timestamp);
     log_dir_for(component).join(format!("{safe}.log"))
+}
+
+fn selected_logs_root() -> Option<PathBuf> {
+    SELECTED_LOGS_ROOT.lock().ok().and_then(|root| root.clone())
+}
+
+fn remember_selected_logs_root(root: &Path) {
+    if let Ok(mut selected) = SELECTED_LOGS_ROOT.lock()
+        && selected.is_none()
+    {
+        *selected = Some(root.to_path_buf());
+    }
+}
+
+fn non_empty_path(path: &OsStr) -> Option<PathBuf> {
+    if path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path))
+    }
+}
+
+fn explicit_logs_root() -> Option<PathBuf> {
+    env::var_os(LOGS_ROOT_ENV)
+        .as_deref()
+        .and_then(non_empty_path)
+}
+
+fn runtime_start_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(exe) = env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        push_unique(&mut paths, parent.to_path_buf());
+    }
+    if let Ok(cwd) = env::current_dir() {
+        push_unique(&mut paths, cwd);
+    }
+    paths
+}
+
+fn binary_output_dir() -> Option<PathBuf> {
+    env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+}
+
+fn find_renderide_workspace_root(start: &Path) -> Option<PathBuf> {
+    let mut current = start.to_path_buf();
+    loop {
+        let cargo = current.join("Cargo.toml");
+        let logger = current.join("crates/logger/Cargo.toml");
+        let renderer = current.join("crates/renderide/Cargo.toml");
+        if cargo.is_file() && logger.is_file() && renderer.is_file() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+fn push_unique(out: &mut Vec<PathBuf>, path: PathBuf) {
+    if !out.iter().any(|candidate| candidate == &path) {
+        out.push(path);
+    }
+}
+
+fn default_logs_root_candidates(
+    start_paths: &[PathBuf],
+    explicit_root: Option<PathBuf>,
+    user_root: Option<PathBuf>,
+    exe_dir: Option<PathBuf>,
+    temp_root: PathBuf,
+) -> Vec<PathBuf> {
+    if let Some(root) = explicit_root {
+        return vec![root];
+    }
+
+    let mut roots = Vec::new();
+    for start in start_paths {
+        if let Some(workspace) = find_renderide_workspace_root(start) {
+            push_unique(&mut roots, workspace.join("logs"));
+        }
+    }
+    if let Some(root) = user_root {
+        push_unique(&mut roots, root);
+    }
+    if let Some(dir) = exe_dir {
+        push_unique(&mut roots, dir.join("logs"));
+    }
+    push_unique(&mut roots, temp_root);
+    roots
+}
+
+fn log_root_candidates() -> Vec<PathBuf> {
+    if let Some(root) = selected_logs_root() {
+        return vec![root];
+    }
+    default_logs_root_candidates(
+        &runtime_start_paths(),
+        explicit_logs_root(),
+        per_user_logs_root(),
+        binary_output_dir(),
+        temp_logs_root(),
+    )
+}
+
+fn temp_logs_root() -> PathBuf {
+    env::temp_dir().join(APP_DIR_NAME).join("logs")
+}
+
+fn per_user_logs_root() -> Option<PathBuf> {
+    per_user_logs_root_with(|key| env::var_os(key))
+}
+
+fn per_user_logs_root_with(mut get_env: impl FnMut(&str) -> Option<OsString>) -> Option<PathBuf> {
+    per_user_logs_root_for_platform(&mut get_env)
+}
+
+#[cfg(target_os = "linux")]
+fn per_user_logs_root_for_platform(
+    get_env: &mut impl FnMut(&str) -> Option<OsString>,
+) -> Option<PathBuf> {
+    if let Some(root) = get_env("XDG_STATE_HOME")
+        .as_deref()
+        .and_then(non_empty_path)
+    {
+        Some(root.join(APP_DIR_NAME).join("logs"))
+    } else {
+        get_env("HOME")
+            .as_deref()
+            .and_then(non_empty_path)
+            .map(|home| {
+                home.join(".local")
+                    .join("state")
+                    .join(APP_DIR_NAME)
+                    .join("logs")
+            })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn per_user_logs_root_for_platform(
+    get_env: &mut impl FnMut(&str) -> Option<OsString>,
+) -> Option<PathBuf> {
+    get_env("HOME")
+        .as_deref()
+        .and_then(non_empty_path)
+        .map(|home| home.join("Library").join("Logs").join(USER_DIR_NAME))
+}
+
+#[cfg(target_os = "windows")]
+fn per_user_logs_root_for_platform(
+    get_env: &mut impl FnMut(&str) -> Option<OsString>,
+) -> Option<PathBuf> {
+    get_env("LOCALAPPDATA")
+        .as_deref()
+        .and_then(non_empty_path)
+        .map(|root| root.join(USER_DIR_NAME).join("logs"))
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn per_user_logs_root_for_platform(
+    get_env: &mut impl FnMut(&str) -> Option<OsString>,
+) -> Option<PathBuf> {
+    get_env("HOME")
+        .as_deref()
+        .and_then(non_empty_path)
+        .map(|home| {
+            home.join(".local")
+                .join("state")
+                .join(APP_DIR_NAME)
+                .join("logs")
+        })
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn per_user_logs_root_for_platform(
+    _get_env: &mut impl FnMut(&str) -> Option<OsString>,
+) -> Option<PathBuf> {
+    None
+}
+
+fn io_with_path_context(action: &str, path: &Path, source: io::Error) -> io::Error {
+    io::Error::new(
+        source.kind(),
+        format!("{action} {}: {source}", path.display()),
+    )
+}
+
+fn ensure_log_dir_at(root: &Path, component: LogComponent) -> io::Result<PathBuf> {
+    let dir = root.join(component.subdir());
+    std::fs::create_dir_all(&dir)
+        .map_err(|source| io_with_path_context("failed to create log directory", &dir, source))?;
+    Ok(dir)
+}
+
+fn init_for_root(
+    root: &Path,
+    component: LogComponent,
+    timestamp: &str,
+    max_level: LogLevel,
+    append: bool,
+) -> io::Result<PathBuf> {
+    let dir = ensure_log_dir_at(root, component)?;
+    let safe = sanitize_timestamp(timestamp);
+    let path = dir.join(format!("{safe}.log"));
+    output::init_with_mirror(&path, max_level, append, false)
+        .map_err(|source| io_with_path_context("failed to open log file", &path, source))?;
+    Ok(path)
 }
 
 /// Replaces every character outside `[A-Za-z0-9_-]` with `_`; empty input becomes `"invalid"`.
@@ -140,10 +350,17 @@ fn sanitize_timestamp(timestamp: &str) -> String {
 }
 
 /// Ensures `<logs>/<component>/` exists.
-pub fn ensure_log_dir(component: LogComponent) -> std::io::Result<PathBuf> {
-    let dir = log_dir_for(component);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+pub fn ensure_log_dir(component: LogComponent) -> io::Result<PathBuf> {
+    let strict = selected_logs_root().is_none() && explicit_logs_root().is_some();
+    let mut last_error = None;
+    for root in log_root_candidates() {
+        match ensure_log_dir_at(&root, component) {
+            Ok(path) => return Ok(path),
+            Err(error) if strict => return Err(error),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| io::Error::other("no Renderide log root candidate available")))
 }
 
 /// Creates the component log directory, ensures [`log_file_path`] parent exists, initializes the
@@ -159,17 +376,27 @@ pub fn init_for(
     timestamp: &str,
     max_level: LogLevel,
     append: bool,
-) -> std::io::Result<PathBuf> {
-    ensure_log_dir(component)?;
-    let path = log_file_path(component, timestamp);
-    output::init_with_mirror(&path, max_level, append, false)?;
-    Ok(path)
+) -> io::Result<PathBuf> {
+    let strict = selected_logs_root().is_none() && explicit_logs_root().is_some();
+    let mut last_error = None;
+    for root in log_root_candidates() {
+        match init_for_root(&root, component, timestamp, max_level, append) {
+            Ok(path) => {
+                remember_selected_logs_root(&root);
+                return Ok(path);
+            }
+            Err(error) if strict => return Err(error),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| io::Error::other("no Renderide log root candidate available")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::{OsStr, OsString};
+    use std::fs;
     use std::sync::{Mutex, MutexGuard};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -189,8 +416,8 @@ mod tests {
             // SAFETY: env mutation in test; serialized via the ENV_LOCK guard held by `_guard`.
             unsafe {
                 match self.prev.take() {
-                    Some(p) => std::env::set_var(LOGS_ROOT_ENV, p),
-                    None => std::env::remove_var(LOGS_ROOT_ENV),
+                    Some(p) => env::set_var(LOGS_ROOT_ENV, p),
+                    None => env::remove_var(LOGS_ROOT_ENV),
                 }
             }
         }
@@ -201,10 +428,10 @@ mod tests {
     /// restoration runs even if the test panics.
     fn with_logs_root_override(root: &Path) -> LogsRootOverride<'static> {
         let guard = ENV_LOCK.lock().expect("env lock");
-        let prev = std::env::var_os(LOGS_ROOT_ENV);
+        let prev = env::var_os(LOGS_ROOT_ENV);
         // SAFETY: env mutation in test; serialized via the ENV_LOCK guard held above.
         unsafe {
-            std::env::set_var(LOGS_ROOT_ENV, root.as_os_str());
+            env::set_var(LOGS_ROOT_ENV, root.as_os_str());
         }
         LogsRootOverride {
             _guard: guard,
@@ -212,27 +439,138 @@ mod tests {
         }
     }
 
+    fn make_workspace_root() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join("Cargo.toml"), "[workspace]\n").expect("workspace manifest");
+        fs::create_dir_all(dir.path().join("crates/logger")).expect("logger crate dir");
+        fs::write(
+            dir.path().join("crates/logger/Cargo.toml"),
+            "[package]\nname = \"logger\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .expect("logger manifest");
+        fs::create_dir_all(dir.path().join("crates/renderide")).expect("renderide crate dir");
+        fs::write(
+            dir.path().join("crates/renderide/Cargo.toml"),
+            "[package]\nname = \"renderide\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .expect("renderide manifest");
+        dir
+    }
+
     #[test]
-    fn logs_root_from_manifest_path() {
-        let manifest = Path::new("/workspace/Renderide/crates/logger");
-        let root = logs_root_with(manifest, None).expect("resolve logs root");
-        assert_eq!(root, PathBuf::from("/workspace/Renderide/logs"));
+    fn logs_root_from_workspace_path() {
+        let workspace = make_workspace_root();
+        let manifest = workspace.path().join("crates/logger");
+        let root = logs_root_with(&manifest, None).expect("resolve logs root");
+        assert_eq!(root, workspace.path().join("logs"));
     }
 
     #[test]
     fn logs_root_env_override_wins() {
         let manifest = Path::new("/workspace/Renderide/crates/logger");
-        let root = logs_root_with(manifest, Some(OsStr::new("/tmp/custom_logs")))
+        let root = logs_root_with(manifest, Some(Path::new("/tmp/custom_logs").as_os_str()))
             .expect("resolve logs root");
         assert_eq!(root, PathBuf::from("/tmp/custom_logs"));
     }
 
     #[test]
-    fn logs_root_with_env_override_takes_precedence_over_short_manifest() {
+    fn logs_root_with_env_override_takes_precedence_over_missing_workspace() {
         let manifest = Path::new("/logger");
-        let root =
-            logs_root_with(manifest, Some(OsStr::new("/tmp/override_logs"))).expect("env override");
+        let root = logs_root_with(manifest, Some(Path::new("/tmp/override_logs").as_os_str()))
+            .expect("env override");
         assert_eq!(root, PathBuf::from("/tmp/override_logs"));
+    }
+
+    #[test]
+    fn default_candidates_keep_workspace_before_user_logs() {
+        let workspace = make_workspace_root();
+        let user_root = PathBuf::from("/user/renderide/logs");
+        let exe_dir = PathBuf::from("/install/bin");
+        let temp_root = PathBuf::from("/tmp/renderide/logs");
+
+        let roots = default_logs_root_candidates(
+            &[workspace.path().join("target/release")],
+            None,
+            Some(user_root.clone()),
+            Some(exe_dir.clone()),
+            temp_root.clone(),
+        );
+
+        assert_eq!(roots[0], workspace.path().join("logs"));
+        assert_eq!(roots[1], user_root);
+        assert_eq!(roots[2], exe_dir.join("logs"));
+        assert_eq!(roots[3], temp_root);
+    }
+
+    #[test]
+    fn default_candidates_use_strict_explicit_root_only() {
+        let workspace = make_workspace_root();
+        let explicit = PathBuf::from("/explicit/logs");
+
+        let roots = default_logs_root_candidates(
+            &[workspace.path().to_path_buf()],
+            Some(explicit.clone()),
+            Some(PathBuf::from("/user/logs")),
+            Some(PathBuf::from("/exe")),
+            PathBuf::from("/tmp/logs"),
+        );
+
+        assert_eq!(roots, vec![explicit]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn per_user_logs_root_prefers_xdg_state_home_on_linux() {
+        let root = per_user_logs_root_with(|key| match key {
+            "XDG_STATE_HOME" => Some(OsString::from("/state")),
+            "HOME" => Some(OsString::from("/home/user")),
+            _ => None,
+        })
+        .expect("user logs root");
+
+        assert_eq!(root, PathBuf::from("/state/renderide/logs"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn per_user_logs_root_falls_back_to_home_on_linux() {
+        let root = per_user_logs_root_with(|key| match key {
+            "HOME" => Some(OsString::from("/home/user")),
+            _ => None,
+        })
+        .expect("user logs root");
+
+        assert_eq!(
+            root,
+            PathBuf::from("/home/user/.local/state/renderide/logs")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn per_user_logs_root_uses_library_logs_on_macos() {
+        let root = per_user_logs_root_with(|key| match key {
+            "HOME" => Some(OsString::from("/Users/user")),
+            _ => None,
+        })
+        .expect("user logs root");
+
+        assert_eq!(root, PathBuf::from("/Users/user/Library/Logs/Renderide"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn per_user_logs_root_uses_local_app_data_on_windows() {
+        let root = per_user_logs_root_with(|key| match key {
+            "LOCALAPPDATA" => Some(OsString::from(r"C:\Users\user\AppData\Local")),
+            _ => None,
+        })
+        .expect("user logs root");
+
+        assert_eq!(
+            root,
+            PathBuf::from(r"C:\Users\user\AppData\Local\Renderide\logs")
+        );
     }
 
     #[test]
@@ -253,16 +591,13 @@ mod tests {
 
     #[test]
     fn log_file_path_layout() {
-        let manifest = Path::new("/r/Renderide/crates/logger");
-        let expected = logs_root_with(manifest, None)
-            .expect("resolve logs root")
-            .join("renderer")
-            .join("2026-04-05_12-00-00.log");
-        let got = logs_root_with(manifest, None)
-            .expect("resolve logs root")
-            .join(LogComponent::Renderer.subdir())
-            .join("2026-04-05_12-00-00.log");
-        assert_eq!(got, expected);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _override = with_logs_root_override(dir.path());
+        let expected = dir.path().join("renderer").join("2026-04-05_12-00-00.log");
+        assert_eq!(
+            log_file_path(LogComponent::Renderer, "2026-04-05_12-00-00"),
+            expected
+        );
     }
 
     #[test]
@@ -280,7 +615,7 @@ mod tests {
         assert!(s.ends_with(".log"));
         // Component directory is preserved (use path components; Windows uses `\\` not `/`).
         assert!(
-            p.iter().any(|c| c == std::ffi::OsStr::new("host")),
+            p.iter().any(|c| c == OsStr::new("host")),
             "missing component dir: {p:?}"
         );
     }
@@ -306,8 +641,9 @@ mod tests {
 
     #[test]
     fn log_dir_for_each_component_distinct() {
-        let manifest = Path::new("/z/Renderide/crates/logger");
-        let root = logs_root_with(manifest, None).expect("root");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _override = with_logs_root_override(dir.path());
+        let root = dir.path();
         let a = root.join(LogComponent::Bootstrapper.subdir());
         let b = root.join(LogComponent::Host.subdir());
         let c = root.join(LogComponent::Renderer.subdir());
@@ -321,20 +657,10 @@ mod tests {
     }
 
     #[test]
-    fn logs_root_err_on_short_manifest_path() {
-        let manifest = Path::new("/logger");
-        let err = logs_root_with(manifest, None).expect_err("short path");
-        assert!(matches!(err, LogsRootError::ManifestPathTooShort { .. }));
-    }
-
-    #[test]
-    fn logs_root_manifest_path_too_short_preserves_manifest_path() {
-        let manifest = PathBuf::from("logger");
-        let err = logs_root_with(&manifest, None).unwrap_err();
-        assert!(matches!(
-            err,
-            LogsRootError::ManifestPathTooShort { manifest_dir } if manifest_dir == manifest
-        ));
+    fn default_candidates_fall_back_to_temp_without_workspace_or_user_root() {
+        let temp_root = PathBuf::from("/tmp/renderide/logs");
+        let roots = default_logs_root_candidates(&[], None, None, None, temp_root.clone());
+        assert_eq!(roots, vec![temp_root]);
     }
 
     #[test]

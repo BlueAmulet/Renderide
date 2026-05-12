@@ -1,6 +1,6 @@
 //! Xiexe Toon 2.0 outline pass: vertex extrusion + per-fragment outline shading.
 //!
-//! Parity notes against the upstream Xiexe Toon include files:
+//! Parity notes against the Unity 2.0 reference:
 //!
 //! - Vertex extrusion uses `_OutlineMask`-modulated width with a distance fade matching
 //!   `min(distance * 3, 1)` from `XSGeom.cginc:55`. The mask is sampled at the raw UV0

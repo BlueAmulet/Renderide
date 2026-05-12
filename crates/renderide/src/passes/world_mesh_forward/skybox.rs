@@ -222,6 +222,7 @@ impl SkyboxRenderer {
             material_bind_group: material_bind.bind_group,
             material_uniform_dynamic_offset: material_bind.uniform_dynamic_offset,
             view_bind_group,
+            vertex_count: family.draw_vertex_count(),
         }))
     }
 
@@ -417,7 +418,7 @@ pub(super) fn record_prepared_skybox(
                 rpass.set_bind_group(1, skybox.material_bind_group.as_ref(), &[]);
             }
             rpass.set_bind_group(2, skybox.view_bind_group.as_ref(), &[]);
-            rpass.draw(0..3, 0..1);
+            rpass.draw(0..skybox.vertex_count, 0..1);
             true
         }
         PreparedSkybox::ClearColor(clear) => {

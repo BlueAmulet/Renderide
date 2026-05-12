@@ -24,6 +24,20 @@ mod paths;
 mod protocol;
 mod protocol_handlers;
 mod renderer_link;
+#[cfg(test)]
+/// Test-only synchronization for process-wide environment variable mutations.
+pub(crate) mod test_env {
+    use std::sync::{Mutex, MutexGuard};
+
+    static INTERPROCESS_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Locks process-wide test mutations of `RENDERIDE_INTERPROCESS_DIR`.
+    pub(crate) fn lock_interprocess_env() -> MutexGuard<'static, ()> {
+        INTERPROCESS_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
 pub mod vr_prompt;
 mod wine_detect;
 
