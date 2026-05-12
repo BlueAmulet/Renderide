@@ -144,7 +144,8 @@ pub(crate) fn default_2d_texture_color_for_host(host_name: &str) -> DefaultTextu
     let host_name = shader_writer_unescaped_property_name(host_name);
     match host_name {
         "_MetallicMap" | "_MetallicMap1" | "_MetallicMap2" | "_MetallicMap3"
-        | "_MetallicGloss01" | "_MetallicGloss23" => DefaultTextureColor::Black,
+        | "_MetallicGloss01" | "_MetallicGloss23" | "_PackedNormalMap01"
+        | "_PackedNormalMap23" => DefaultTextureColor::Black,
         _ => DefaultTextureColor::White,
     }
 }
@@ -353,6 +354,24 @@ mod tests {
             "_MetallicGloss23",
             "_MetallicMap1_",
             "_MetallicMapX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ4GSZLYMU5DU5DPN5XDEX",
+        ] {
+            assert_eq!(
+                default_2d_texture_color_for_host(host_name),
+                DefaultTextureColor::Black,
+                "{host_name} should bind the black placeholder"
+            );
+        }
+    }
+
+    #[test]
+    fn packed_normal_maps_use_black_default_texture() {
+        // PBSColorSplat ships `_PackedNormalMap01/23 = "black" {}`: the encoding packs derivative
+        // deltas around zero, so a black texel is the no-op default and a flat-normal value would
+        // bias the surface.
+        for host_name in [
+            "_PackedNormalMap01",
+            "_PackedNormalMap23",
+            "_PackedNormalMap01X_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ4GSZLYMU5DU5DPN5XDEX",
         ] {
             assert_eq!(
                 default_2d_texture_color_for_host(host_name),
