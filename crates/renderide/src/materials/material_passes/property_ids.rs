@@ -8,6 +8,8 @@ use crate::materials::host_data::PropertyIdRegistry;
 /// (audited against the host's `MaterialProvider` base and the per-material subclasses).
 /// `_SrcBlendBase`/`_DstBlendBase` are kept because `XiexeToonMaterial` overrides
 /// `SrcBlendProp`/`DstBlendProp` to those names.
+/// `_Cull` and `_Culling` both encode Unity `CullMode`; some shader assets expose the longer
+/// spelling even though most material providers send `_Cull`.
 /// `_BlendMode` is not carried: the host never sends it; the mode is reconstructed from
 /// `_SrcBlend`/`_DstBlend` factors via
 /// [`super::blend_mode::MaterialBlendMode::from_unity_blend_factors`].
@@ -29,7 +31,7 @@ pub struct MaterialPipelinePropertyIds {
     pub(crate) z_test: [i32; 1],
     pub(crate) offset_factor: [i32; 1],
     pub(crate) offset_units: [i32; 1],
-    pub(crate) cull: [i32; 1],
+    pub(crate) cull: [i32; 2],
     pub(crate) render_queue: [i32; 1],
     pub(crate) rect: [i32; 1],
     pub(crate) rect_clip: [i32; 1],
@@ -59,7 +61,7 @@ impl MaterialPipelinePropertyIds {
             z_test: [registry.intern("_ZTest")],
             offset_factor: [registry.intern("_OffsetFactor")],
             offset_units: [registry.intern("_OffsetUnits")],
-            cull: [registry.intern("_Cull")],
+            cull: [registry.intern("_Cull"), registry.intern("_Culling")],
             render_queue: [registry.intern("_RenderQueue")],
             rect: [registry.intern("_Rect")],
             rect_clip: [registry.intern("_RectClip")],
