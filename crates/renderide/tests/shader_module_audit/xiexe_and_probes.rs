@@ -31,41 +31,24 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
         !lighting_src.contains("let uv = matcap_uv(view_dir, normal);"),
         "Xiexe matcap UVs must not use the per-eye lighting view direction"
     );
-    let matcap_sample_pos = lighting_src
-        .find("let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);")
-        .expect("Xiexe lighting must contain a matcap sampling branch");
-    let non_matcap_branch_pos = lighting_src
-        .find("if (xvb::baked_cubemap_enabled()) {")
-        .expect("Xiexe lighting must contain non-matcap reflection handling");
     assert!(
-        matcap_sample_pos < non_matcap_branch_pos,
-        "Xiexe matcaps must be sampled before non-matcap reflection branches"
+        lighting_src.contains("spec = spec * (ambient + dominant_light_col_atten * 0.5);"),
+        "Xiexe matcaps must receive the Unity 2.0 light-scaling term (`XSLightingFunctions.cginc:231`)"
     );
-    let matcap_branch = &lighting_src[matcap_sample_pos..non_matcap_branch_pos];
-    assert!(
-        matcap_branch.contains("spec = spec * (ambient + dominant_light_col_atten * 0.5);"),
-        "Xiexe matcaps must always receive the Unity light-scaling term"
-    );
-    assert!(
-        !matcap_branch.contains("reflection_is_multiplicative()"),
-        "Xiexe matcap sampling must not branch on `_ReflectionBlendMode`"
-    );
-    assert!(
-        lighting_src.contains(
-            "if (xvb::matcap_enabled()) {\n        return 1.0;\n    }\n    return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);"
-        ),
-        "Xiexe matcaps must not be blended by reflectivity or reflectivity-mask weight"
-    );
-    assert!(
-        lighting_src.contains(
-            "if (xvb::matcap_enabled()) {\n        return surface + reflection;\n    }\n\n    if (reflection_is_multiplicative()) {"
-        ),
-        "Xiexe matcap reflections must use additive composition before `_ReflectionBlendMode` branches"
-    );
-    assert!(
-        !lighting_src.contains("return spec * max("),
-        "Xiexe matcaps must not be scaled by reflectivity or clearcoat branch strength"
-    );
+    for forbidden in [
+        "reflection_is_multiplicative",
+        "baked_cubemap_enabled",
+        "reflection_disabled",
+        "_ReflectionBlendMode",
+        "_BakedCubemap",
+        "apply_reflection_blend",
+        "reflection_blend_weight",
+    ] {
+        assert!(
+            !lighting_src.contains(forbidden),
+            "Xiexe lighting must not retain XSToon3 extension `{forbidden}`"
+        );
+    }
     Ok(())
 }
 
@@ -101,9 +84,9 @@ fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
         "let reflection = v_term * d_term * 3.14159265;",
         "smooth_specular",
         "xb::mat._SpecularIntensity * 0.001",
-        "xb::mat._SpecularIntensity * s.specular_mask.r",
-        "xb::mat._SpecularArea * s.specular_mask.b",
-        "xb::mat._SpecularAlbedoTint * s.specular_mask.g",
+        "s.specular_mask",
+        "clearcoat_direct_specular",
+        "clearcoat_roughness",
     ] {
         assert!(
             !lighting_src.contains(forbidden),
@@ -126,7 +109,8 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
         "let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);",
         "let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);",
         "let spec = rprobe::indirect_specular_with_energy(",
-        "return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);",
+        "spec = mix(spec, spec * dominant_ramp, roughness);",
+        "col + reflection * clamp(s.reflectivity_mask, 0.0, 1.0)",
     ] {
         assert!(
             lighting_src.contains(required),
