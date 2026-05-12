@@ -175,6 +175,23 @@ fn reflection_probe_specular_samples_unity_oriented_atlas() -> io::Result<()> {
 }
 
 #[test]
+fn xiexe_direct_diffuse_uses_filament_lambert_with_ramp_tint() -> io::Result<()> {
+    let lighting_src =
+        source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
+    assert!(
+        lighting_src.contains(
+            "direct_diffuse = direct_diffuse + s.albedo.rgb * brdf::fd_lambert() * light.color * ramp;"
+        ),
+        "Per-light direct diffuse must route through Filament Lambert (`fd_lambert`) with the toon ramp as a 3-channel multiplier; saw:\n{lighting_src}"
+    );
+    assert!(
+        !lighting_src.contains("s.albedo.rgb * ramp * light_col_atten"),
+        "The legacy un-normalized direct-diffuse accumulator must be removed"
+    );
+    Ok(())
+}
+
+#[test]
 fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> {
     let base_src = source_file(manifest_dir().join("shaders/modules/xiexe/toon2/base.wgsl"))?;
     assert!(

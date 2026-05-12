@@ -407,7 +407,12 @@ fn clustered_toon_lighting(
         let ndl = dot(s.normal, light.direction);
         let ramp = ramp_for_ndl(ndl, light.attenuation, s.ramp_mask);
         let light_col_atten = light.color * light.attenuation;
-        direct_diffuse = direct_diffuse + s.albedo.rgb * ramp * light_col_atten;
+        // Filament Lambert (`1/π`) with the toon ramp as a 3-channel multiplier
+        // replacing `NdotL * att`. At ramp ≈ 1 (full lit) this equals PBSMetallic's
+        // direct diffuse `albedo * fd_lambert() * lightCol * NdotL * att`; in shadow
+        // regions the ramp drives the stylized falloff curve and any author-painted
+        // tint. `s.albedo` is already metallic-discounted in `surface::sample_surface`.
+        direct_diffuse = direct_diffuse + s.albedo.rgb * brdf::fd_lambert() * light.color * ramp;
         direct_spec = direct_spec + direct_specular(s, light, view_dir, primary_specular_terms);
         sss = sss + subsurface(s, light, view_dir, ambient);
 
