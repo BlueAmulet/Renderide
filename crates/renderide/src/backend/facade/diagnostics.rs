@@ -130,11 +130,6 @@ impl BackendDiagnostics {
         self.debug_hud.clear_stats_snapshots();
     }
 
-    /// Clears the scene transforms payload.
-    pub(super) fn clear_scene_transforms_snapshot(&mut self) {
-        self.debug_hud.clear_scene_transforms_snapshot();
-    }
-
     /// Last world-mesh draw stats captured by the HUD.
     pub(super) fn last_world_mesh_draw_stats(&self) -> WorldMeshDrawStats {
         self.debug_hud.last_world_mesh_draw_stats()
@@ -148,6 +143,11 @@ impl BackendDiagnostics {
     /// Stores scene transforms for the next HUD frame.
     pub(super) fn set_scene_transforms_snapshot(&mut self, snapshot: SceneTransformsSnapshot) {
         self.debug_hud.set_scene_transforms_snapshot(snapshot);
+    }
+
+    /// Clears scene transform diagnostics.
+    pub(super) fn clear_scene_transforms_snapshot(&mut self) {
+        self.debug_hud.clear_scene_transforms_snapshot();
     }
 
     /// Stores texture diagnostics for the next HUD frame.
