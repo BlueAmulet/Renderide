@@ -49,8 +49,8 @@ const PBSSLICESPECULAR_KW_EMISSIONTEX: u32 = 1u << 4u;
 // optional `_SpecularMap` sampling.
 const PBSSLICESPECULAR_KW_METALLICMAP: u32 = 1u << 5u;
 const PBSSLICESPECULAR_KW_NORMALMAP: u32 = 1u << 6u;
-const PBSSLICESPECULAR_KW_OBJECT_SPACE: u32 = 1u << 7u;
-const PBSSLICESPECULAR_KW_OCCLUSION: u32 = 1u << 8u;
+const PBSSLICESPECULAR_KW_OCCLUSION: u32 = 1u << 7u;
+const PBSSLICESPECULAR_KW_OBJECT_SPACE: u32 = 1u << 8u;
 const PBSSLICESPECULAR_KW_WORLD_SPACE: u32 = 1u << 9u;
 
 @group(1) @binding(0)  var<uniform> mat: PBSSliceSpecularMaterial;

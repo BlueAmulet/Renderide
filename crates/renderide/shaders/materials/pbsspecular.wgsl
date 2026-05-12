@@ -47,6 +47,7 @@ struct PbsSpecularMaterial {
     _DetailNormalMap_LodBias: f32,
 }
 
+const PBSSPECULAR_KW_ALPHABLEND_ON: u32 = 1u << 0u;
 const PBSSPECULAR_KW_ALPHAPREMULTIPLY_ON: u32 = 1u << 1u;
 const PBSSPECULAR_KW_ALPHATEST_ON: u32 = 1u << 2u;
 const PBSSPECULAR_KW_DETAIL_MULX2: u32 = 1u << 3u;
