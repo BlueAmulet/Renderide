@@ -45,7 +45,7 @@ pub(super) mod asset_ids {
 /// Procedural sphere tessellation that stands in for "a real scene".
 ///
 /// Values must match the golden image's vertex layout -- changing them invalidates the committed
-/// `goldens/sphere.png`.
+/// `goldens/unlit_sphere.png`.
 pub(super) mod sphere_tessellation {
     /// Number of latitude bands; `16` produces enough silhouette smoothness for SSIM stability.
     pub(in crate::host::scene_session) const LATITUDE_BANDS: u32 = 16;
@@ -56,7 +56,7 @@ pub(super) mod sphere_tessellation {
 /// Procedural torus tessellation and dimensions.
 ///
 /// Values must match the golden image's vertex layout -- changing them invalidates the committed
-/// `goldens/torus.png`.
+/// `goldens/torus_unlit_perlin.png`.
 pub(super) mod torus_geometry {
     /// Number of segments around the major circle.
     pub(in crate::host::scene_session) const MAJOR_SEGMENTS: u32 = 48;

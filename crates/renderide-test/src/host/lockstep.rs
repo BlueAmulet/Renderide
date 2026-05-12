@@ -1,4 +1,4 @@
-//! Lockstep loop: drains both `...S` queues, replies to every `FrameStartData` with the current
+//! Lockstep loop: drains both `...S` queues, replies to every `FrameStartData` with the next
 //! `FrameSubmitData`, and lets callers inspect drained messages for asset acks (e.g.
 //! `MeshUploadResult`).
 //!
@@ -21,16 +21,20 @@ pub struct TickResult {
     pub other_messages: Vec<RendererCommand>,
 }
 
-/// Lockstep driver shared across the harness. Owns the current scene state plus the per-tick
-/// frame counter.
+/// Lockstep driver shared across the harness. Owns pending scene deltas plus the per-tick frame
+/// counter.
 pub struct LockstepDriver {
     /// Frame index for the next `FrameSubmitData` we send.
     frame_index: i32,
     /// Fixed scalar fields applied to every `FrameSubmitData` (clip planes, FOV, `vr_active` flag).
     pub frame_scalars: FrameSubmitScalars,
-    /// Current scene state. `None` during the handshake / asset-upload phases (no render-space yet);
-    /// switch to `Some(...)` once the sphere has been uploaded and we want it on screen.
-    pub current_render_space: Option<RenderSpaceUpdate>,
+    /// Pending render-space delta. `None` during the handshake / asset-upload phases; switch to
+    /// `Some(...)` once assets have uploaded and the harness needs to submit scene additions.
+    ///
+    /// Render-space updates carry delta lists such as mesh additions. They must be sent once and
+    /// then cleared, otherwise the renderer appends another copy of the same renderable every
+    /// lockstep frame while the harness waits for PNG readback.
+    pending_render_space: Option<RenderSpaceUpdate>,
 }
 
 /// Static per-frame scalar fields that the harness sets once and reuses across every submit.
@@ -61,20 +65,20 @@ impl Default for FrameSubmitScalars {
 }
 
 impl LockstepDriver {
-    /// Creates a driver with `frame_index = 0` and no scene attached yet (handshake / upload
+    /// Creates a driver with `frame_index = 0` and no scene delta pending yet (handshake / upload
     /// phase).
     pub const fn new(frame_scalars: FrameSubmitScalars) -> Self {
         Self {
             frame_index: 0,
             frame_scalars,
-            current_render_space: None,
+            pending_render_space: None,
         }
     }
 
-    /// Latches a render-space update so future `FrameSubmitData` messages embed the sphere scene.
-    /// Pass `None` to revert to "empty" frame submits.
+    /// Latches a render-space update so the next successful `FrameSubmitData` embeds it.
+    /// Pass `None` to clear the pending update before it is submitted.
     pub fn set_render_space(&mut self, update: Option<RenderSpaceUpdate>) {
-        self.current_render_space = update;
+        self.pending_render_space = update;
     }
 
     /// Current frame index that will be assigned to the **next** outgoing `FrameSubmitData`.
@@ -83,7 +87,7 @@ impl LockstepDriver {
     }
 
     /// Drains both `...S` queues and replies to every `FrameStartData` with a `FrameSubmitData`
-    /// built from the current scene state.
+    /// built from the next pending scene delta, if any.
     pub(super) fn tick(&mut self, queues: &mut HostDualQueueIpc) -> TickResult {
         let mut drained = Vec::new();
         queues.poll_into(&mut drained);
@@ -103,15 +107,14 @@ impl LockstepDriver {
     }
 
     fn send_frame_submit(&mut self, queues: &mut HostDualQueueIpc) -> bool {
-        let submit = build_frame_submit_data(
-            self.frame_index,
-            &self.frame_scalars,
-            self.current_render_space.as_ref(),
-        );
+        let render_space = self.pending_render_space.take();
+        let submit =
+            build_frame_submit_data(self.frame_index, &self.frame_scalars, render_space.as_ref());
         let sent = queues.send_primary(RendererCommand::FrameSubmitData(submit));
         if sent {
             self.frame_index = self.frame_index.wrapping_add(1);
         } else {
+            self.pending_render_space = render_space;
             logger::warn!(
                 "Lockstep: failed to send FrameSubmitData (queue full?); frame_index unchanged"
             );
@@ -161,7 +164,7 @@ mod tests {
     fn driver_starts_at_frame_index_zero() {
         let d = LockstepDriver::new(FrameSubmitScalars::default());
         assert_eq!(d.current_frame_index(), 0);
-        assert!(d.current_render_space.is_none());
+        assert!(d.pending_render_space.is_none());
     }
 
     #[test]
@@ -178,9 +181,9 @@ mod tests {
     fn set_render_space_to_some_then_none_round_trip() {
         let mut d = LockstepDriver::new(FrameSubmitScalars::default());
         d.set_render_space(Some(RenderSpaceUpdate::default()));
-        assert!(d.current_render_space.is_some());
+        assert!(d.pending_render_space.is_some());
         d.set_render_space(None);
-        assert!(d.current_render_space.is_none());
+        assert!(d.pending_render_space.is_none());
     }
 
     #[test]
@@ -190,6 +193,20 @@ mod tests {
         d.set_render_space(Some(RenderSpaceUpdate::default()));
         d.set_render_space(None);
         assert_eq!(d.current_frame_index(), before);
+    }
+
+    #[test]
+    fn pending_render_space_is_consumed_for_one_submit_payload() {
+        let mut d = LockstepDriver::new(FrameSubmitScalars::default());
+        d.set_render_space(Some(RenderSpaceUpdate::default()));
+
+        let render_space = d.pending_render_space.take();
+        let first = build_frame_submit_data(0, &d.frame_scalars, render_space.as_ref());
+        assert_eq!(first.render_spaces.len(), 1);
+        assert!(d.pending_render_space.is_none());
+
+        let second = build_frame_submit_data(1, &d.frame_scalars, d.pending_render_space.as_ref());
+        assert!(second.render_spaces.is_empty());
     }
 
     #[test]

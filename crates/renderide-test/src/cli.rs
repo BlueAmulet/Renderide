@@ -56,7 +56,7 @@ enum Command {
     /// Run the harness, then overwrite the golden PNG at `--out` with the produced image.
     Generate {
         /// Path of the golden image to write.
-        #[arg(long, default_value = "crates/renderide-test/goldens/sphere.png")]
+        #[arg(long, default_value = "crates/renderide-test/goldens/unlit_sphere.png")]
         out: PathBuf,
         /// Common harness options.
         #[command(flatten)]
@@ -65,7 +65,7 @@ enum Command {
     /// Run the harness and compare the produced PNG against the committed golden via SSIM.
     Check {
         /// Path of the golden image to compare against.
-        #[arg(long, default_value = "crates/renderide-test/goldens/sphere.png")]
+        #[arg(long, default_value = "crates/renderide-test/goldens/unlit_sphere.png")]
         golden: PathBuf,
         /// Minimum hybrid SSIM score required to pass (0.0 - 1.0).
         ///
