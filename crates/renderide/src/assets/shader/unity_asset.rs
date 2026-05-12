@@ -3,7 +3,8 @@
 //! [`crate::shared::ShaderUpload::file`] is typically an **extensionless path** (or any path) whose bytes
 //! parse as UnityFS / AssetBundle data--not a Unity `.asset` YAML file. Route selection still prefers
 //! [`unity_asset::environment::Environment::bundle_container_entries`]: `AssetBundle.m_Container`
-//! asset paths matched to embedded Shader objects, then stemmed (e.g. `.../ui_unlit.shader` -> `ui_unlit`).
+//! asset paths matched to embedded Shader objects, then lowercased and stemmed
+//! (e.g. `.../UI_Unlit.shader` -> `ui_unlit`).
 //!
 //! Serialized shader objects are also read for the top-level ShaderLab name so Froox variant
 //! suffixes (`{shader_name}_{variant_bits:08X}`) can be stripped and carried as metadata.
@@ -34,7 +35,7 @@ const PROBE_HEX_SHORT: usize = 8;
 /// Shader asset route metadata resolved from an uploaded Unity shader AssetBundle.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedUnityShaderAsset {
-    /// Shader asset filename or stem used for route selection.
+    /// Lowercase shader asset filename stem used for route selection.
     pub shader_asset_name: String,
     /// Froox shader variant bitmask parsed from the internal Shader name suffix, when present.
     pub shader_variant_bits: Option<u32>,
@@ -49,7 +50,6 @@ struct InternalShaderName {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ShaderObjectCandidate {
-    order: usize,
     path_id: i64,
     class_id: i32,
     container_name: Option<String>,
@@ -394,126 +394,71 @@ fn shader_resolution_from_bundle(
 fn shader_resolution_from_candidates(
     candidates: &[ShaderObjectCandidate],
 ) -> Option<ResolvedUnityShaderAsset> {
-    let shader_asset_name = select_shader_asset_name(candidates)?;
-    let selected_internal = select_internal_name_candidate(candidates, &shader_asset_name);
-    log_shader_candidate_selection(&shader_asset_name, selected_internal, candidates);
+    let shader_asset_name = shader_asset_name_from_candidates(candidates)?;
+    let variant_candidate = shader_variant_candidate(candidates);
+    log_shader_candidate_selection(&shader_asset_name, variant_candidate, candidates);
     Some(ResolvedUnityShaderAsset {
         shader_asset_name,
-        shader_variant_bits: selected_internal
+        shader_variant_bits: variant_candidate
             .and_then(|candidate| candidate.internal_name.as_ref())
             .and_then(|name| name.shader_variant_bits),
     })
 }
 
-fn select_shader_asset_name(candidates: &[ShaderObjectCandidate]) -> Option<String> {
+fn shader_asset_name_from_candidates(candidates: &[ShaderObjectCandidate]) -> Option<String> {
     candidates
         .iter()
         .find_map(|candidate| candidate.container_name.clone())
-        .or_else(|| {
-            best_internal_candidate(candidates.iter())
-                .and_then(|candidate| candidate.internal_name.as_ref())
-                .map(|name| name.shader_asset_name.clone())
-        })
 }
 
-fn select_internal_name_candidate<'a>(
-    candidates: &'a [ShaderObjectCandidate],
-    shader_asset_name: &str,
-) -> Option<&'a ShaderObjectCandidate> {
-    let route_key = shader_asset_match_key(shader_asset_name);
-    let route_matches = candidates.iter().filter(|candidate| {
+fn shader_variant_candidate(
+    candidates: &[ShaderObjectCandidate],
+) -> Option<&ShaderObjectCandidate> {
+    candidates.iter().find(|candidate| {
         candidate
             .internal_name
             .as_ref()
-            .is_some_and(|name| shader_asset_match_key(&name.shader_asset_name) == route_key)
-    });
-    if let Some(candidate) = best_internal_candidate(route_matches) {
-        return Some(candidate);
-    }
-
-    let container_matches = candidates.iter().filter(|candidate| {
-        candidate
-            .container_name
-            .as_ref()
-            .is_some_and(|name| shader_asset_match_key(name) == route_key)
-    });
-    if let Some(candidate) = best_internal_candidate(container_matches) {
-        return Some(candidate);
-    }
-
-    let mut internal_candidates = candidates
-        .iter()
-        .filter(|candidate| candidate.internal_name.is_some());
-    let first = internal_candidates.next()?;
-    if internal_candidates.next().is_none() {
-        return Some(first);
-    }
-
-    let mut variant_candidates = candidates.iter().filter(|candidate| {
-        candidate
-            .internal_name
-            .as_ref()
-            .is_some_and(|name| name.shader_variant_bits.is_some())
-    });
-    let first_variant = variant_candidates.next();
-    if let Some(candidate) = first_variant
-        && variant_candidates.next().is_none()
-    {
-        return Some(candidate);
-    }
-
-    best_internal_candidate(candidates.iter())
+            .is_some_and(non_fallback_variant_internal_name)
+    })
 }
 
-fn best_internal_candidate<'a>(
-    candidates: impl Iterator<Item = &'a ShaderObjectCandidate>,
-) -> Option<&'a ShaderObjectCandidate> {
-    candidates
-        .filter(|candidate| candidate.internal_name.is_some())
-        .max_by(|a, b| {
-            let a_score = internal_candidate_score(a);
-            let b_score = internal_candidate_score(b);
-            a_score.cmp(&b_score).then_with(|| b.order.cmp(&a.order))
-        })
+fn non_fallback_variant_internal_name(name: &InternalShaderName) -> bool {
+    name.shader_variant_bits.is_some() && !is_fallback_internal_shader_name(&name.full_name)
 }
 
-fn internal_candidate_score(candidate: &ShaderObjectCandidate) -> (bool, u8) {
-    (
-        candidate
-            .internal_name
-            .as_ref()
-            .is_some_and(|name| name.shader_variant_bits.is_some()),
-        candidate
-            .internal_source
-            .map_or(0, internal_source_priority),
-    )
+fn is_fallback_internal_shader_name(full_name: &str) -> bool {
+    full_name
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("legacy shaders/")
 }
 
-fn internal_source_priority(source: InternalShaderNameSource) -> u8 {
-    match source {
-        InternalShaderNameSource::TypeTreeShaderLab => 3,
-        InternalShaderNameSource::RawShaderLab => 2,
-        InternalShaderNameSource::ParsedFormName => 1,
+fn shader_candidate_skip_reason(candidate: &ShaderObjectCandidate) -> &'static str {
+    let Some(name) = &candidate.internal_name else {
+        return "no internal name";
+    };
+    if name.shader_variant_bits.is_none() {
+        return "no variant bits";
     }
-}
-
-fn shader_asset_match_key(name: &str) -> String {
-    name.trim().to_ascii_lowercase()
+    if is_fallback_internal_shader_name(&name.full_name) {
+        return "fallback internal name";
+    }
+    "variant not selected"
 }
 
 fn log_shader_candidate_selection(
     shader_asset_name: &str,
-    selected_internal: Option<&ShaderObjectCandidate>,
+    selected_variant: Option<&ShaderObjectCandidate>,
     candidates: &[ShaderObjectCandidate],
 ) {
-    if let Some(candidate) = selected_internal
+    if let Some(candidate) = selected_variant
         && let (Some(source), Some(name)) = (candidate.internal_source, &candidate.internal_name)
     {
         log_internal_name_resolution(candidate.path_id, candidate.class_id, source, name);
     }
 
     for candidate in candidates {
-        if selected_internal.is_some_and(|selected| selected.path_id == candidate.path_id) {
+        if selected_variant.is_some_and(|selected| selected.path_id == candidate.path_id) {
             continue;
         }
         let (full_name, variant_bits, source) =
@@ -528,9 +473,10 @@ fn log_shader_candidate_selection(
                     )
                 });
         logger::debug!(
-            "shader_unity_asset: skipped Shader path_id={} class_id={} route={:?} container_name={:?} source={} full_name={:?} variant_bits={:?}",
+            "shader_unity_asset: skipped Shader path_id={} class_id={} reason={} route={:?} container_name={:?} source={} full_name={:?} variant_bits={:?}",
             candidate.path_id,
             candidate.class_id,
+            shader_candidate_skip_reason(candidate),
             shader_asset_name,
             candidate.container_name,
             source.map_or("none", InternalShaderNameSource::as_str),
@@ -624,7 +570,6 @@ fn shader_candidates_from_serialized_file(
         }
 
         candidates.push(ShaderObjectCandidate {
-            order: candidates.len(),
             path_id,
             class_id,
             container_name: container_name_for_path_id(container_names, path_id),
@@ -933,7 +878,8 @@ fn container_name_for_path_id(container_names: &[(i64, String)], path_id: i64) -
         .map(|(_, name)| name.clone())
 }
 
-/// Derives a shader asset name from a Unity `m_Container` asset path (e.g. `.../ui_unlit.shader` -> `ui_unlit`).
+/// Derives a lowercase shader asset name from a Unity `m_Container` asset path
+/// (e.g. `.../UI_Unlit.shader` -> `ui_unlit`).
 fn shader_asset_name_from_container_asset_path(asset_path: &str) -> Option<String> {
     let p = asset_path.replace('\\', "/");
     let seg = p.rsplit('/').next()?.trim();
@@ -950,11 +896,11 @@ fn shader_asset_name_from_container_asset_path(asset_path: &str) -> Option<Strin
     if base.is_empty() {
         return None;
     }
-    let lower = base.to_ascii_lowercase();
-    if lower.starts_with("cab-") {
+    let shader_asset_name = base.to_ascii_lowercase();
+    if shader_asset_name.starts_with("cab-") {
         return None;
     }
-    Some(base.to_string())
+    Some(shader_asset_name)
 }
 
 #[cfg(test)]
@@ -978,15 +924,15 @@ mod tests {
         assert_eq!(
             shader_asset_name_from_container_asset_path("Assets\\Shaders\\UI Text Unlit.shader")
                 .as_deref(),
-            Some("UI Text Unlit")
+            Some("ui text unlit")
         );
         assert_eq!(
             shader_asset_name_from_container_asset_path("  assets/foo/ToonLit.shader  ").as_deref(),
-            Some("ToonLit")
+            Some("toonlit")
         );
         assert_eq!(
             shader_asset_name_from_container_asset_path("assets/foo/AlreadyStem").as_deref(),
-            Some("AlreadyStem")
+            Some("alreadystem")
         );
         assert_eq!(
             shader_asset_name_from_container_asset_path("").as_deref(),
@@ -1152,12 +1098,13 @@ mod tests {
     }
 
     #[test]
-    fn resolution_uses_container_name_and_shader_lab_variant_bits() {
+    fn resolution_uses_lowercase_container_filename_route_and_shader_lab_variant_bits() {
+        let shader_asset_name =
+            shader_asset_name_from_container_asset_path("Assets/Shaders/PBSLerpSpecular.shader");
         assert_eq!(
             shader_resolution_from_candidates(&[shader_candidate(
-                0,
                 1,
-                Some("pbslerpspecular"),
+                shader_asset_name.as_deref(),
                 Some(internal_shader_name("PBSLerpSpecular_000000B1", Some(0xB1))),
             )]),
             Some(ResolvedUnityShaderAsset {
@@ -1172,7 +1119,6 @@ mod tests {
         assert_eq!(
             shader_resolution_from_candidates(&[
                 shader_candidate(
-                    0,
                     3_464_988_009_001_945_076,
                     Some("pbslerpspecular"),
                     Some(internal_shader_name(
@@ -1181,7 +1127,6 @@ mod tests {
                     )),
                 ),
                 shader_candidate(
-                    1,
                     4_060_164_223_764_131_682,
                     None,
                     Some(internal_shader_name("PBSLerpSpecular_000000B1", Some(0xB1))),
@@ -1195,10 +1140,21 @@ mod tests {
     }
 
     #[test]
-    fn resolution_preserves_single_mismatched_internal_variant_for_container_route() {
+    fn resolution_does_not_use_internal_name_as_route() {
         assert_eq!(
             shader_resolution_from_candidates(&[shader_candidate(
-                0,
+                1,
+                None,
+                Some(internal_shader_name("PBSLerpSpecular_000000B1", Some(0xB1))),
+            )]),
+            None
+        );
+    }
+
+    #[test]
+    fn resolution_keeps_container_route_when_internal_variant_name_differs() {
+        assert_eq!(
+            shader_resolution_from_candidates(&[shader_candidate(
                 1,
                 Some("ui_unlit"),
                 Some(internal_shader_name("UI/Unlit_00000014", Some(0x14))),
@@ -1206,6 +1162,39 @@ mod tests {
             Some(ResolvedUnityShaderAsset {
                 shader_asset_name: "ui_unlit".to_string(),
                 shader_variant_bits: Some(0x14),
+            })
+        );
+    }
+
+    #[test]
+    fn resolution_skips_fallback_variant_names() {
+        assert_eq!(
+            shader_resolution_from_candidates(&[shader_candidate(
+                1,
+                Some("pbslerpspecular"),
+                Some(internal_shader_name(
+                    "Legacy Shaders/Transparent/Cutout/VertexLit_00000001",
+                    Some(1),
+                )),
+            )]),
+            Some(ResolvedUnityShaderAsset {
+                shader_asset_name: "pbslerpspecular".to_string(),
+                shader_variant_bits: None,
+            })
+        );
+    }
+
+    #[test]
+    fn resolution_ignores_internal_names_without_variant_suffixes() {
+        assert_eq!(
+            shader_resolution_from_candidates(&[shader_candidate(
+                1,
+                Some("pbslerpspecular"),
+                Some(internal_shader_name("PBSLerpSpecular", None)),
+            )]),
+            Some(ResolvedUnityShaderAsset {
+                shader_asset_name: "pbslerpspecular".to_string(),
+                shader_variant_bits: None,
             })
         );
     }
@@ -1275,18 +1264,19 @@ mod tests {
     }
 
     fn shader_candidate(
-        order: usize,
         path_id: i64,
         container_name: Option<&str>,
         internal_name: Option<InternalShaderName>,
     ) -> ShaderObjectCandidate {
+        let internal_source = internal_name
+            .as_ref()
+            .map(|_| InternalShaderNameSource::ParsedFormName);
         ShaderObjectCandidate {
-            order,
             path_id,
             class_id: SHADER,
             container_name: container_name.map(str::to_string),
             internal_name,
-            internal_source: Some(InternalShaderNameSource::ParsedFormName),
+            internal_source,
         }
     }
 
