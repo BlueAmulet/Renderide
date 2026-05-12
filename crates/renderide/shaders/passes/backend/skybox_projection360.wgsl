@@ -4,9 +4,9 @@
 //! `@group(1) @binding(0)` layout (which is taken from the material-side shader) matches
 //! this pass-side shader's bind requirement. Froox variant bits populate
 //! `_RenderideVariantBits`; this shader decodes Projection360's shader-specific keyword
-//! bits locally. Implicit defaults from each multi_compile group (`_VIEW`,
-//! `EQUIRECTANGULAR`, `OUTSIDE_CLIP`, `TINT_TEX_NONE`) reserve a bit but never need their
-//! helper consulted - the fallthrough branches handle them.
+//! bits locally. Unity `multi_compile` groups without a `_` placeholder still have an
+//! implicit first keyword when the material sets no bit; this shader reconstructs that
+//! default for the affected groups.
 
 #import renderide::skybox::cubemap_storage as cubemap_storage
 #import renderide::frame::globals as rg
@@ -39,24 +39,33 @@ struct Projection360Material {
     _RenderideVariantBits: u32,
 }
 
-const P360_KW_CUBEMAP: u32 = 1u << 0u;
-const P360_KW_CUBEMAP_LOD: u32 = 1u << 1u;
-const P360_KW_EQUIRECTANGULAR: u32 = 1u << 2u;
-const P360_KW_OUTSIDE_CLAMP: u32 = 1u << 3u;
-const P360_KW_OUTSIDE_CLIP: u32 = 1u << 4u;
-const P360_KW_OUTSIDE_COLOR: u32 = 1u << 5u;
-const P360_KW_RECTCLIP: u32 = 1u << 6u;
-const P360_KW_SECOND_TEXTURE: u32 = 1u << 7u;
-const P360_KW_TINT_TEX_DIRECT: u32 = 1u << 8u;
-const P360_KW_TINT_TEX_LERP: u32 = 1u << 9u;
-const P360_KW_TINT_TEX_NONE: u32 = 1u << 10u;
-const P360_KW_CLAMP_INTENSITY: u32 = 1u << 11u;
-const P360_KW_NORMAL: u32 = 1u << 12u;
-const P360_KW_OFFSET: u32 = 1u << 13u;
-const P360_KW_PERSPECTIVE: u32 = 1u << 14u;
-const P360_KW_RIGHT_EYE_ST: u32 = 1u << 15u;
-const P360_KW_VIEW: u32 = 1u << 16u;
-const P360_KW_WORLD_VIEW: u32 = 1u << 17u;
+const P360_KW_CLAMP_INTENSITY: u32 = 1u << 0u;
+const P360_KW_NORMAL: u32 = 1u << 1u;
+const P360_KW_OFFSET: u32 = 1u << 2u;
+const P360_KW_PERSPECTIVE: u32 = 1u << 3u;
+const P360_KW_RIGHT_EYE_ST: u32 = 1u << 4u;
+const P360_KW_VIEW: u32 = 1u << 5u;
+const P360_KW_WORLD_VIEW: u32 = 1u << 6u;
+const P360_KW_CUBEMAP: u32 = 1u << 7u;
+const P360_KW_CUBEMAP_LOD: u32 = 1u << 8u;
+const P360_KW_EQUIRECTANGULAR: u32 = 1u << 9u;
+const P360_KW_OUTSIDE_CLAMP: u32 = 1u << 10u;
+const P360_KW_OUTSIDE_CLIP: u32 = 1u << 11u;
+const P360_KW_OUTSIDE_COLOR: u32 = 1u << 12u;
+const P360_KW_RECTCLIP: u32 = 1u << 13u;
+const P360_KW_SECOND_TEXTURE: u32 = 1u << 14u;
+const P360_KW_TINT_TEX_DIRECT: u32 = 1u << 15u;
+const P360_KW_TINT_TEX_LERP: u32 = 1u << 16u;
+const P360_KW_TINT_TEX_NONE: u32 = 1u << 17u;
+
+const P360_GROUP_VIEW: u32 =
+    P360_KW_VIEW | P360_KW_WORLD_VIEW | P360_KW_NORMAL | P360_KW_PERSPECTIVE;
+const P360_GROUP_OUTSIDE: u32 =
+    P360_KW_OUTSIDE_CLIP | P360_KW_OUTSIDE_COLOR | P360_KW_OUTSIDE_CLAMP;
+const P360_GROUP_TINT_TEX: u32 =
+    P360_KW_TINT_TEX_NONE | P360_KW_TINT_TEX_DIRECT | P360_KW_TINT_TEX_LERP;
+const P360_GROUP_TEXTURE_MODE: u32 =
+    P360_KW_EQUIRECTANGULAR | P360_KW_CUBEMAP | P360_KW_CUBEMAP_LOD;
 
 @group(1) @binding(0) var<uniform> mat: Projection360Material;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
@@ -79,17 +88,34 @@ fn proj360_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
+fn proj360_group_default(group_mask: u32, this_bit: u32) -> bool {
+    return (mat._RenderideVariantBits & group_mask) == 0u
+        || vb::enabled(mat._RenderideVariantBits, this_bit);
+}
+
 fn kw_CUBEMAP() -> bool { return proj360_kw(P360_KW_CUBEMAP); }
 fn kw_CUBEMAP_LOD() -> bool { return proj360_kw(P360_KW_CUBEMAP_LOD); }
+fn kw_EQUIRECTANGULAR() -> bool {
+    return proj360_group_default(P360_GROUP_TEXTURE_MODE, P360_KW_EQUIRECTANGULAR);
+}
 fn kw_OUTSIDE_CLAMP() -> bool { return proj360_kw(P360_KW_OUTSIDE_CLAMP); }
+fn kw_OUTSIDE_CLIP() -> bool {
+    return proj360_group_default(P360_GROUP_OUTSIDE, P360_KW_OUTSIDE_CLIP);
+}
 fn kw_OUTSIDE_COLOR() -> bool { return proj360_kw(P360_KW_OUTSIDE_COLOR); }
 fn kw_SECOND_TEXTURE() -> bool { return proj360_kw(P360_KW_SECOND_TEXTURE); }
 fn kw_TINT_TEX_DIRECT() -> bool { return proj360_kw(P360_KW_TINT_TEX_DIRECT); }
 fn kw_TINT_TEX_LERP() -> bool { return proj360_kw(P360_KW_TINT_TEX_LERP); }
+fn kw_TINT_TEX_NONE() -> bool {
+    return proj360_group_default(P360_GROUP_TINT_TEX, P360_KW_TINT_TEX_NONE);
+}
 fn kw_CLAMP_INTENSITY() -> bool { return proj360_kw(P360_KW_CLAMP_INTENSITY); }
 fn kw_OFFSET() -> bool { return proj360_kw(P360_KW_OFFSET); }
 fn kw_PERSPECTIVE() -> bool { return proj360_kw(P360_KW_PERSPECTIVE); }
 fn kw_RIGHT_EYE_ST() -> bool { return proj360_kw(P360_KW_RIGHT_EYE_ST); }
+fn kw_VIEW() -> bool {
+    return proj360_group_default(P360_GROUP_VIEW, P360_KW_VIEW);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -116,7 +142,7 @@ fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
         if (kw_OUTSIDE_COLOR()) {
             return mat._OutsideColor;
         }
-        if (!kw_OUTSIDE_CLAMP()) {
+        if (kw_OUTSIDE_CLIP()) {
             discard;
         }
     }
