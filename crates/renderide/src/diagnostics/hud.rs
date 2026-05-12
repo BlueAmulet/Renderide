@@ -44,7 +44,9 @@ use crate::config::{DebugHudSettings, RendererSettingsHandle, save_renderer_sett
 
 use self::input::apply_input;
 use self::layout::Viewport;
-use self::persistence::{imgui_ini_path_from_config_save_path, write_text_atomic};
+use self::persistence::{
+    imgui_ini_path_from_config_save_path, read_nonempty_text, write_nonempty_text_atomic,
+};
 use self::registry::{DebugWindow, OverlayFeatureFlags};
 use self::view::HudWindow;
 use self::windows::frame_timing::FrameTimingWindow;
@@ -227,8 +229,14 @@ impl DebugHud {
             return;
         }
 
-        match std::fs::read_to_string(imgui_ini_path) {
-            Ok(data) => imgui.load_ini_settings(&data),
+        match read_nonempty_text(imgui_ini_path) {
+            Ok(Some(data)) => imgui.load_ini_settings(&data),
+            Ok(None) => {
+                logger::debug!(
+                    "Ignoring empty ImGui layout file at {}",
+                    imgui_ini_path.display()
+                );
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => {
                 logger::warn!(
@@ -269,11 +277,20 @@ impl DebugHud {
         if self.current_hud_settings().persist_layout {
             let mut contents = String::new();
             self.imgui.save_ini_settings(&mut contents);
-            if let Err(e) = write_text_atomic(&self.imgui_ini_path, &contents) {
-                logger::warn!(
-                    "Failed to save ImGui layout to {}: {e}",
-                    self.imgui_ini_path.display()
-                );
+            match write_nonempty_text_atomic(&self.imgui_ini_path, &contents) {
+                Ok(true) => {}
+                Ok(false) => {
+                    logger::debug!(
+                        "Skipping empty ImGui layout save to {}",
+                        self.imgui_ini_path.display()
+                    );
+                }
+                Err(e) => {
+                    logger::warn!(
+                        "Failed to save ImGui layout to {}: {e}",
+                        self.imgui_ini_path.display()
+                    );
+                }
             }
         }
 
