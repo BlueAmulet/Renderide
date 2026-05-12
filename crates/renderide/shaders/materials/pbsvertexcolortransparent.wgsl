@@ -2,8 +2,8 @@
 //! optionally multiplies albedo, emission, or metallic/smoothness by the mesh vertex color.
 //!
 //! Mirrors [`pbsdualsided`](super::pbsdualsided) for the keyword + VCOLOR_* surface, dropping the
-//! front-face flip (this shader is single-sided in Unity). Transparent default render state is
-//! driven by the host's `_SrcBlend` / `_DstBlend` / `_ZWrite` material properties.
+//! front-face flip (this shader is single-sided in Unity). Transparent alpha blending is used with
+//! Unity's authored `Cull Back`.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes
 //! PBSVertexColorTransparent's shader-specific keyword bits locally.
@@ -196,7 +196,7 @@ fn vs_main(
 #endif
 }
 
-//#pass forward
+//#pass forward_transparent_cull_back
 @fragment
 fn fs_forward_base(
     @builtin(position) frag_pos: vec4<f32>,

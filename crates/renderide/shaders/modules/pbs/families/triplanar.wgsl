@@ -3,8 +3,6 @@
 #define_import_path renderide::pbs::families::triplanar
 
 #import renderide::core::normal_decode as nd
-#import renderide::core::uv as uvu
-
 struct PlanarUvs {
     uv_x: vec2<f32>,
     uv_y: vec2<f32>,
@@ -25,15 +23,19 @@ fn triplanar_weights(world_n: vec3<f32>, blend_power_in: f32) -> vec3<f32> {
     return raw / sum;
 }
 
-fn build_planar_uvs(proj_pos: vec3<f32>, world_n: vec3<f32>, main_tex_st: vec4<f32>) -> PlanarUvs {
+fn triplanar_apply_st(uv_in: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
+    return uv_in * st.xy + st.zy;
+}
+
+fn build_planar_uvs(proj_pos: vec3<f32>, proj_n: vec3<f32>, main_tex_st: vec4<f32>) -> PlanarUvs {
     var uvs: PlanarUvs;
-    uvs.uv_x = uvu::apply_st(proj_pos.zy, main_tex_st);
-    uvs.uv_y = uvu::apply_st(proj_pos.xz, main_tex_st);
-    uvs.uv_z = uvu::apply_st(proj_pos.xy, main_tex_st);
+    uvs.uv_x = triplanar_apply_st(proj_pos.zy, main_tex_st);
+    uvs.uv_y = triplanar_apply_st(proj_pos.xz, main_tex_st);
+    uvs.uv_z = triplanar_apply_st(proj_pos.xy, main_tex_st);
     let axis_sign = vec3<f32>(
-        select(-1.0, 1.0, world_n.x >= 0.0),
-        select(-1.0, 1.0, world_n.y >= 0.0),
-        select(-1.0, 1.0, world_n.z >= 0.0),
+        select(-1.0, 1.0, proj_n.x >= 0.0),
+        select(-1.0, 1.0, proj_n.y >= 0.0),
+        select(-1.0, 1.0, proj_n.z >= 0.0),
     );
     uvs.uv_x.x = uvs.uv_x.x * axis_sign.x;
     uvs.uv_y.x = uvs.uv_y.x * axis_sign.y;
@@ -49,16 +51,16 @@ fn sample_rgba(tex: texture_2d<f32>, samp: sampler, uvs: PlanarUvs, weights: vec
     return cx * weights.x + cy * weights.y + cz * weights.z;
 }
 
-fn sample_normal_world(
+fn sample_normal_projection(
     enabled: bool,
     normal_tex: texture_2d<f32>,
     normal_samp: sampler,
     uvs: PlanarUvs,
     normal_scale: f32,
-    world_n: vec3<f32>,
+    proj_n: vec3<f32>,
     weights: vec3<f32>,
 ) -> vec3<f32> {
-    let n_geo = normalize(world_n);
+    let n_geo = normalize(proj_n);
     if (!enabled) {
         return n_geo;
     }

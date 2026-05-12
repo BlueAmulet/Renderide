@@ -226,6 +226,65 @@ fn pbs_dualsided_opaque_stems_preserve_authored_cull_off() {
     }
 }
 
+/// Asserts that a shader stem declares one alpha-blended transparent pass.
+fn assert_one_transparent_forward_pass(stem: &str) {
+    let passes = crate::embedded_shaders::embedded_target_passes(stem);
+    assert_eq!(
+        passes.len(),
+        1,
+        "{stem} should declare one transparent forward pass"
+    );
+    assert_eq!(passes[0].name, "forward_transparent", "{stem}");
+    assert!(!passes[0].depth_write, "{stem}");
+    assert!(passes[0].blend.is_some(), "{stem}");
+}
+
+/// Asserts that a shader stem keeps its depth prepass before transparent color output.
+fn assert_depth_prepass_before_transparent_forward(stem: &str) {
+    let passes = crate::embedded_shaders::embedded_target_passes(stem);
+    assert_eq!(
+        passes.len(),
+        2,
+        "{stem} should declare depth prepass then transparent forward pass"
+    );
+    assert_eq!(passes[0].name, "depth_prepass", "{stem}");
+    assert!(passes[0].depth_write, "{stem}");
+    assert_eq!(passes[0].write_mask, COLOR_WRITES_NONE, "{stem}");
+    assert_eq!(passes[1].name, "forward_transparent", "{stem}");
+    assert!(!passes[1].depth_write, "{stem}");
+    assert!(passes[1].blend.is_some(), "{stem}");
+}
+
+/// Asserts that a shader stem declares one back-face-culled transparent pass.
+fn assert_one_back_face_culled_transparent_pass(stem: &str) {
+    let passes = crate::embedded_shaders::embedded_target_passes(stem);
+    assert_eq!(
+        passes.len(),
+        1,
+        "{stem} should declare one back-face-culled transparent forward pass"
+    );
+    assert_eq!(passes[0].name, "forward_transparent_cull_back", "{stem}");
+    assert_eq!(passes[0].cull_mode, Some(wgpu::Face::Back), "{stem}");
+    assert!(!passes[0].depth_write, "{stem}");
+    assert!(passes[0].blend.is_some(), "{stem}");
+}
+
+/// Asserts that a shader stem declares the back-face then front-face transparent pass pair.
+fn assert_dualsided_transparent_pass_pair(stem: &str) {
+    let passes = crate::embedded_shaders::embedded_target_passes(stem);
+    assert_eq!(
+        passes.len(),
+        2,
+        "{stem} should declare back-face then front-face transparent passes"
+    );
+    assert_eq!(passes[0].name, "forward_transparent_cull_front", "{stem}");
+    assert_eq!(passes[0].cull_mode, Some(wgpu::Face::Front), "{stem}");
+    assert!(passes[0].blend.is_some(), "{stem}");
+    assert_eq!(passes[1].name, "forward_transparent_cull_back", "{stem}");
+    assert_eq!(passes[1].cull_mode, Some(wgpu::Face::Back), "{stem}");
+    assert!(passes[1].blend.is_some(), "{stem}");
+}
+
 /// Verifies selected PBS transparent stems declare transparent defaults instead of opaque forward aliases.
 #[test]
 fn selected_pbs_transparent_stems_keep_transparent_pass_defaults() {
@@ -238,52 +297,31 @@ fn selected_pbs_transparent_stems_keep_transparent_pass_defaults() {
         "pbsrimtransparentspecular_default",
         "pbsslicetransparent_default",
         "pbsslicetransparentspecular_default",
+        "pbstriplanartransparent_default",
+        "pbstriplanartransparentspecular_default",
     ] {
-        let passes = crate::embedded_shaders::embedded_target_passes(stem);
-        assert_eq!(
-            passes.len(),
-            1,
-            "{stem} should declare one transparent forward pass"
-        );
-        assert_eq!(passes[0].name, "forward_transparent", "{stem}");
-        assert!(!passes[0].depth_write, "{stem}");
-        assert!(passes[0].blend.is_some(), "{stem}");
+        assert_one_transparent_forward_pass(stem);
     }
 
     for stem in [
         "pbsrimtransparentzwrite_default",
         "pbsrimtransparentzwritespecular_default",
     ] {
-        let passes = crate::embedded_shaders::embedded_target_passes(stem);
-        assert_eq!(
-            passes.len(),
-            2,
-            "{stem} should declare depth prepass then transparent forward pass"
-        );
-        assert_eq!(passes[0].name, "depth_prepass", "{stem}");
-        assert!(passes[0].depth_write, "{stem}");
-        assert_eq!(passes[0].write_mask, COLOR_WRITES_NONE, "{stem}");
-        assert_eq!(passes[1].name, "forward_transparent", "{stem}");
-        assert!(!passes[1].depth_write, "{stem}");
-        assert!(passes[1].blend.is_some(), "{stem}");
+        assert_depth_prepass_before_transparent_forward(stem);
+    }
+
+    for stem in [
+        "pbsvertexcolortransparent_default",
+        "pbsvertexcolortransparentspecular_default",
+    ] {
+        assert_one_back_face_culled_transparent_pass(stem);
     }
 
     for stem in [
         "pbsdualsidedtransparent_default",
         "pbsdualsidedtransparentspecular_default",
     ] {
-        let passes = crate::embedded_shaders::embedded_target_passes(stem);
-        assert_eq!(
-            passes.len(),
-            2,
-            "{stem} should declare back-face then front-face transparent passes"
-        );
-        assert_eq!(passes[0].name, "forward_transparent_cull_front", "{stem}");
-        assert_eq!(passes[0].cull_mode, Some(wgpu::Face::Front), "{stem}");
-        assert!(passes[0].blend.is_some(), "{stem}");
-        assert_eq!(passes[1].name, "forward_transparent_cull_back", "{stem}");
-        assert_eq!(passes[1].cull_mode, Some(wgpu::Face::Back), "{stem}");
-        assert!(passes[1].blend.is_some(), "{stem}");
+        assert_dualsided_transparent_pass_pair(stem);
     }
 }
 

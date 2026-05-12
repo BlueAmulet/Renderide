@@ -18,6 +18,137 @@ fn assert_keyword_bit(src: &str, file_name: &str, constant_name: &str, bit_index
 }
 
 #[test]
+fn selected_pbs_materials_keep_sorted_shader_variant_bits() -> io::Result<()> {
+    let pbs_stencil_specular = material_source("pbsstencilspecular.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSSTENCILSPECULAR_KW_ALBEDOTEX", 0),
+        ("PBSSTENCILSPECULAR_KW_EMISSIONTEX", 1),
+        ("PBSSTENCILSPECULAR_KW_NORMALMAP", 2),
+        ("PBSSTENCILSPECULAR_KW_OCCLUSION", 3),
+        ("PBSSTENCILSPECULAR_KW_SPECULARMAP", 4),
+    ] {
+        assert_keyword_bit(
+            &pbs_stencil_specular,
+            "pbsstencilspecular.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_triplanar = material_source("pbstriplanar.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSTRIPLANAR_KW_ALBEDOTEX", 0),
+        ("PBSTRIPLANAR_KW_EMISSIONTEX", 1),
+        ("PBSTRIPLANAR_KW_METALLICMAP", 2),
+        ("PBSTRIPLANAR_KW_NORMALMAP", 3),
+        ("PBSTRIPLANAR_KW_OBJECTSPACE", 4),
+        ("PBSTRIPLANAR_KW_OCCLUSION", 5),
+        ("PBSTRIPLANAR_KW_WORLDSPACE", 6),
+    ] {
+        assert_keyword_bit(
+            &pbs_triplanar,
+            "pbstriplanar.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_triplanar_specular = material_source("pbstriplanarspecular.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSTRIPLANARSPEC_KW_ALBEDOTEX", 0),
+        ("PBSTRIPLANARSPEC_KW_EMISSIONTEX", 1),
+        ("PBSTRIPLANARSPEC_KW_NORMALMAP", 2),
+        ("PBSTRIPLANARSPEC_KW_OBJECTSPACE", 3),
+        ("PBSTRIPLANARSPEC_KW_OCCLUSION", 4),
+        ("PBSTRIPLANARSPEC_KW_SPECULARMAP", 5),
+        ("PBSTRIPLANARSPEC_KW_WORLDSPACE", 6),
+    ] {
+        assert_keyword_bit(
+            &pbs_triplanar_specular,
+            "pbstriplanarspecular.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_vertex_color_transparent = material_source("pbsvertexcolortransparent.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSVCT_KW_ALBEDOTEX", 0),
+        ("PBSVCT_KW_ALPHACLIP", 1),
+        ("PBSVCT_KW_EMISSIONTEX", 2),
+        ("PBSVCT_KW_METALLICMAP", 3),
+        ("PBSVCT_KW_NORMALMAP", 4),
+        ("PBSVCT_KW_OCCLUSION", 5),
+        ("PBSVCT_KW_VCOLOR_ALBEDO", 6),
+        ("PBSVCT_KW_VCOLOR_EMIT", 7),
+        ("PBSVCT_KW_VCOLOR_METALLIC", 8),
+    ] {
+        assert_keyword_bit(
+            &pbs_vertex_color_transparent,
+            "pbsvertexcolortransparent.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_vertex_color_transparent_specular =
+        material_source("pbsvertexcolortransparentspecular.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSVCTS_KW_ALBEDOTEX", 0),
+        ("PBSVCTS_KW_ALPHACLIP", 1),
+        ("PBSVCTS_KW_EMISSIONTEX", 2),
+        ("PBSVCTS_KW_NORMALMAP", 3),
+        ("PBSVCTS_KW_OCCLUSION", 4),
+        ("PBSVCTS_KW_SPECULARMAP", 5),
+        ("PBSVCTS_KW_VCOLOR_ALBEDO", 6),
+        ("PBSVCTS_KW_VCOLOR_EMIT", 7),
+        ("PBSVCTS_KW_VCOLOR_SPECULAR", 8),
+    ] {
+        assert_keyword_bit(
+            &pbs_vertex_color_transparent_specular,
+            "pbsvertexcolortransparentspecular.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pixelate = material_source("pixelate.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PIXELATE_KW_RECTCLIP", 0),
+        ("PIXELATE_KW_RESOLUTION_TEX", 1),
+    ] {
+        assert_keyword_bit(&pixelate, "pixelate.wgsl", constant_name, bit_index);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn selected_pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<()> {
+    for material in [
+        "pbstriplanartransparent.wgsl",
+        "pbstriplanartransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(pass_directives(&src), ["forward_transparent"], "{material}");
+    }
+
+    for material in [
+        "pbsvertexcolortransparent.wgsl",
+        "pbsvertexcolortransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(
+            pass_directives(&src),
+            ["forward_transparent_cull_back"],
+            "{material}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
     let birp = module_source("lighting/birp.wgsl")?;
     assert!(
