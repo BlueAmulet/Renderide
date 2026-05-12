@@ -24,6 +24,7 @@ struct GpuLight {
 }
 
 struct GpuReflectionProbe {
+    /// World-space AABB minimum; `.w` stores the sanitized blend distance.
     box_min: vec4<f32>,
     box_max: vec4<f32>,
     position: vec4<f32>,

@@ -166,7 +166,7 @@ fn shade_metallic_clustered(
     let indirect_dfg = brdf::sample_ibl_dfg_lut(s.roughness, n_dot_v);
     let specular_energy = brdf::indirect_specular_energy_from_dfg(indirect_dfg, specular_color, indirect_specular_enabled);
     let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, s.occlusion, s.roughness);
-    let ambient_probe = rprobe::indirect_diffuse(s.normal, view_layer, options.include_directional);
+    let ambient_probe = rprobe::indirect_diffuse(world_pos, s.normal, view_layer, options.include_directional);
     let ambient = brdf::indirect_diffuse_metallic(
         ambient_probe,
         s.base_color,
@@ -215,7 +215,7 @@ fn shade_specular_clustered(
     let indirect_dfg = brdf::sample_ibl_dfg_lut(s.roughness, n_dot_v);
     let specular_energy = brdf::indirect_specular_energy_from_dfg(indirect_dfg, s.specular_color, indirect_specular_enabled);
     let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, s.occlusion, s.roughness);
-    let ambient_probe = rprobe::indirect_diffuse(s.normal, view_layer, options.include_directional);
+    let ambient_probe = rprobe::indirect_diffuse(world_pos, s.normal, view_layer, options.include_directional);
     let ambient = brdf::indirect_diffuse_specular(
         ambient_probe,
         s.base_color,
