@@ -249,33 +249,12 @@ impl EmbeddedMaterialBindResources {
         }
     }
 
-    /// Returns or builds a `@group(1)` bind group for the composed embedded `stem` (e.g. `unlit_default`).
-    #[inline]
-    pub(crate) fn embedded_material_bind_group(
-        &self,
-        stem: &str,
-        uploads: GraphUploadSink<'_>,
-        store: &MaterialPropertyStore,
-        pools: &EmbeddedTexturePools<'_>,
-        lookup: MaterialPropertyLookupIds,
-        offscreen_write_render_texture_asset_id: Option<i32>,
-    ) -> Result<EmbeddedMaterialBindGroup, EmbeddedMaterialBindError> {
-        self.embedded_material_bind_group_with_cache_key(
-            EmbeddedMaterialBindShader {
-                stem,
-                shader_variant_bits: None,
-            },
-            uploads,
-            store,
-            pools,
-            lookup,
-            offscreen_write_render_texture_asset_id,
-        )
-        .map(|(_, g)| g)
-    }
-
-    /// Same as [`Self::embedded_material_bind_group`], plus the cache key for diagnostics and
-    /// possible caller-side bind deduplication.
+    /// Returns or builds a `@group(1)` bind group for the composed embedded `stem`. Callers
+    /// must thread the shader-specific Froox variant bitmask through
+    /// [`EmbeddedMaterialBindShader::shader_variant_bits`]: hard-coding `None` zeroes
+    /// `_RenderideVariantBits` in the packed uniform and breaks every keyword-driven
+    /// branch in the shader (this is how the Projection360 skybox-pass black-render
+    /// regression reached production).
     pub(crate) fn embedded_material_bind_group_with_cache_key(
         &self,
         shader: EmbeddedMaterialBindShader<'_>,
