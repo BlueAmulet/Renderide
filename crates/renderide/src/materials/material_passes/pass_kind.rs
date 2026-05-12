@@ -43,6 +43,20 @@ const SRC_ALPHA_ONE_MINUS_SRC_ALPHA_BLEND: wgpu::BlendState = wgpu::BlendState {
     },
 };
 
+/// Unity `Blend One OneMinusSrcAlpha` for premultiplied transparent material passes.
+const ONE_ONE_MINUS_SRC_ALPHA_BLEND: wgpu::BlendState = wgpu::BlendState {
+    color: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        operation: wgpu::BlendOperation::Add,
+    },
+    alpha: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        operation: wgpu::BlendOperation::Add,
+    },
+};
+
 /// Unity straight alpha blend used by surface shaders that declare `alpha` without explicit
 /// material blend-factor properties.
 const UNITY_ALPHA_BLEND: wgpu::BlendState = wgpu::BlendState {
@@ -130,9 +144,9 @@ impl MaterialRenderStatePolicy {
         depth_offset: true,
     };
 
-    /// Stencil mask draw: keep the authored color mask while allowing material depth/stencil knobs.
+    /// Stencil-material draw: allow material color, depth, cull, and stencil knobs.
     pub(crate) const STENCIL: Self = Self {
-        color_mask: false,
+        color_mask: true,
         depth_write: true,
         depth_compare: true,
         cull: true,
@@ -148,6 +162,16 @@ impl MaterialRenderStatePolicy {
         cull: false,
         stencil: true,
         depth_offset: true,
+    };
+
+    /// Fixed transparent draw: preserve authored blend/depth while allowing cull and stencil state.
+    pub(crate) const FIXED_TRANSPARENT: Self = Self {
+        color_mask: false,
+        depth_write: false,
+        depth_compare: false,
+        cull: true,
+        stencil: true,
+        depth_offset: false,
     };
 
     /// Forward draw that keeps the shader-authored cull mode while allowing other material state.
@@ -188,6 +212,10 @@ pub enum PassKind {
     Forward,
     /// Forward pass with material-driven blend / depth-write and authored `Cull Off`.
     ForwardTwoSided,
+    /// Fixed straight-alpha forward pass: `Blend SrcAlpha OneMinusSrcAlpha`, `ZWrite Off`.
+    ForwardAlphaBlend,
+    /// Fixed premultiplied-alpha forward pass: `Blend One OneMinusSrcAlpha`, `ZWrite Off`.
+    ForwardPremultipliedTransparent,
     /// Transparent forward pass with Unity `alpha` defaults and material-driven overrides.
     ForwardTransparent,
     /// Transparent forward pass with hardcoded `Cull Front`, ignoring runtime `_Cull`.
@@ -198,7 +226,7 @@ pub enum PassKind {
     TransparentRgb,
     /// Outline silhouette pass: `Cull Front` so back faces of an inflated shell show.
     Outline,
-    /// Stencil-only pass: `Cull Front`, `ColorMask 0`, `ZWrite Off`; writes only to the stencil buffer.
+    /// Stencil material pass: `Cull Front`, `ZWrite Off`, material-driven color mask and stencil.
     Stencil,
     /// Depth-only prepass: writes depth, no color (`ColorMask 0`). Runs before the matching color pass.
     DepthPrepass,
@@ -243,6 +271,16 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
             render_state_policy: MaterialRenderStatePolicy::FORWARD_TWO_SIDED,
             ..base
         },
+        PassKind::ForwardAlphaBlend => fixed_transparent_pass(
+            base,
+            SRC_ALPHA_ONE_MINUS_SRC_ALPHA_BLEND,
+            MaterialRenderStatePolicy::FIXED_TRANSPARENT,
+        ),
+        PassKind::ForwardPremultipliedTransparent => fixed_transparent_pass(
+            base,
+            ONE_ONE_MINUS_SRC_ALPHA_BLEND,
+            MaterialRenderStatePolicy::FIXED_TRANSPARENT,
+        ),
         PassKind::ForwardTransparent => {
             transparent_forward_pass(base, None, MaterialRenderStatePolicy::FORWARD)
         }
@@ -272,7 +310,7 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
         PassKind::Stencil => MaterialPassDesc {
             depth_write: false,
             cull_mode: Some(wgpu::Face::Front),
-            write_mask: COLOR_WRITES_NONE,
+            write_mask: wgpu::ColorWrites::ALL,
             render_state_policy: MaterialRenderStatePolicy::STENCIL,
             ..base
         },
@@ -307,6 +345,20 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
     }
 }
 
+const fn fixed_transparent_pass(
+    base: MaterialPassDesc,
+    blend: wgpu::BlendState,
+    render_state_policy: MaterialRenderStatePolicy,
+) -> MaterialPassDesc {
+    MaterialPassDesc {
+        depth_write: false,
+        blend: Some(blend),
+        write_mask: wgpu::ColorWrites::ALL,
+        render_state_policy,
+        ..base
+    }
+}
+
 const fn transparent_forward_pass(
     base: MaterialPassDesc,
     cull_mode: Option<wgpu::Face>,
@@ -328,6 +380,8 @@ const fn pass_kind_label(kind: PassKind) -> &'static str {
     match kind {
         PassKind::Forward => "forward",
         PassKind::ForwardTwoSided => "forward_two_sided",
+        PassKind::ForwardAlphaBlend => "forward_alpha_blend",
+        PassKind::ForwardPremultipliedTransparent => "forward_premultiplied_transparent",
         PassKind::ForwardTransparent => "forward_transparent",
         PassKind::ForwardTransparentCullFront => "forward_transparent_cull_front",
         PassKind::ForwardTransparentCullBack => "forward_transparent_cull_back",

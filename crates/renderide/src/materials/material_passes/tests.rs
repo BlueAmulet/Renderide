@@ -20,6 +20,11 @@ fn interns_ui_rect_clip_property_ids_into_pipeline_set() {
     assert_eq!(ids.rect[0], reg.intern("_Rect"));
     assert_eq!(ids.rect_clip[0], reg.intern("_RectClip"));
     assert_ne!(ids.rect[0], ids.rect_clip[0]);
+    assert_eq!(ids.cull, [reg.intern("_Cull"), reg.intern("_Culling")]);
+    assert_eq!(
+        ids.color_mask,
+        [reg.intern("_ColorMask"), reg.intern("_colormask")]
+    );
 }
 
 #[test]
@@ -115,6 +120,35 @@ fn resolves_unity_stencil_and_color_mask_properties() {
     assert_eq!(
         state.stencil_state().front.depth_fail_op,
         wgpu::StencilOperation::IncrementClamp
+    );
+}
+
+#[test]
+fn resolves_source_authored_culling_and_color_mask_aliases() {
+    let reg = PropertyIdRegistry::new();
+    let ids = MaterialPipelinePropertyIds::new(&reg);
+    let mut store = MaterialPropertyStore::new();
+    let culling = reg.intern("_Culling");
+    let color_mask = reg.intern("_colormask");
+
+    store.set_material(441, culling, MaterialPropertyValue::Float(1.0));
+    store.set_material(441, color_mask, MaterialPropertyValue::Float(0.0));
+    let dict = MaterialDictionary::new(&store);
+    let lookup = MaterialPropertyLookupIds {
+        material_asset_id: 441,
+        mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
+    };
+    let state = material_render_state_for_lookup(&dict, lookup, &ids);
+
+    assert_eq!(state.cull_override, MaterialCullOverride::Front);
+    assert_eq!(
+        state.resolved_cull_mode(Some(wgpu::Face::Back)),
+        Some(wgpu::Face::Front)
+    );
+    assert_eq!(
+        state.color_writes(wgpu::ColorWrites::ALL),
+        wgpu::ColorWrites::empty()
     );
 }
 
@@ -323,6 +357,67 @@ fn forward_transparent_defaults_to_unity_alpha_blend() {
     assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
     assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
     assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+}
+
+#[test]
+fn fixed_alpha_blend_pass_matches_unity_fade_state() {
+    let pass = pass_from_kind(PassKind::ForwardAlphaBlend, "fs_forward_base");
+    let blend = pass.blend.expect("fade blend");
+
+    assert_eq!(pass.name, "forward_alpha_blend");
+    assert_eq!(pass.material_state, MaterialPassState::Static);
+    assert!(!pass.depth_write);
+    assert_eq!(pass.cull_mode, Some(wgpu::Face::Back));
+    assert_eq!(pass.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+    assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+
+    let state = MaterialRenderState {
+        cull_override: MaterialCullOverride::Off,
+        depth_write: Some(true),
+        ..MaterialRenderState::default()
+    };
+    assert_eq!(pass.resolved_cull_mode(state), None);
+    assert!(!pass.resolved_depth_write(state));
+}
+
+#[test]
+fn fixed_premultiplied_transparent_pass_matches_unity_state() {
+    let pass = pass_from_kind(PassKind::ForwardPremultipliedTransparent, "fs_forward_base");
+    let blend = pass.blend.expect("premultiplied blend");
+
+    assert_eq!(pass.name, "forward_premultiplied_transparent");
+    assert_eq!(pass.material_state, MaterialPassState::Static);
+    assert!(!pass.depth_write);
+    assert_eq!(pass.cull_mode, Some(wgpu::Face::Back));
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+    assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+}
+
+#[test]
+fn stencil_pass_uses_source_color_mask_and_stencil_state() {
+    let pass = pass_from_kind(PassKind::Stencil, "fs_main");
+    assert_eq!(pass.name, "stencil");
+    assert!(!pass.depth_write);
+    assert_eq!(pass.cull_mode, Some(wgpu::Face::Front));
+    assert_eq!(pass.write_mask, wgpu::ColorWrites::ALL);
+
+    let state = MaterialRenderState {
+        color_mask: Some(0),
+        cull_override: MaterialCullOverride::Back,
+        depth_write: Some(true),
+        ..MaterialRenderState::default()
+    };
+    assert_eq!(
+        pass.resolved_color_writes(state),
+        wgpu::ColorWrites::empty()
+    );
+    assert_eq!(pass.resolved_cull_mode(state), Some(wgpu::Face::Back));
+    assert!(pass.resolved_depth_write(state));
 }
 
 #[test]

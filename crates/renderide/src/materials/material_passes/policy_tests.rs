@@ -65,7 +65,7 @@ fn pass_policy_resolves_expected_material_overrides_by_kind() {
     assert_resolved_pass(
         pass_from_kind(PassKind::Stencil, "fs_stencil"),
         enabled_depth,
-        COLOR_WRITES_NONE,
+        wgpu::ColorWrites::ALL,
         true,
         wgpu::CompareFunction::Always,
         None,
@@ -265,9 +265,9 @@ fn selected_pbs_transparent_stems_keep_transparent_pass_defaults() {
     }
 }
 
-/// Verifies the XSToon family keeps its expected forward / outline / stencil topology.
+/// Verifies outlined XSToon stems keep outline before forward rendering.
 #[test]
-fn xstoon_stems_keep_expected_outline_and_stencil_pass_order() {
+fn xstoon_outlined_stems_keep_outline_before_forward() {
     for stem in [
         "xstoon2.0-outlined_default",
         "xstoon2.0_outlined_default",
@@ -279,15 +279,17 @@ fn xstoon_stems_keep_expected_outline_and_stencil_pass_order() {
         assert_eq!(passes[0].name, "outline", "{stem}");
         assert_eq!(passes[1].name, "forward", "{stem}");
     }
+}
 
+/// Verifies opaque XSToon stems keep a single forward pass.
+#[test]
+fn xstoon_opaque_stems_keep_single_forward_pass() {
     for stem in [
         "xstoon2.0_default",
         "xstoon2.0-cutout_default",
         "xstoon2.0-cutouta2c_default",
         "xstoon2.0-cutouta2cmasked_default",
         "xstoon2.0-dithered_default",
-        "xstoon2.0-fade_default",
-        "xstoon2.0-transparent_default",
     ] {
         let passes = crate::embedded_shaders::embedded_target_passes(stem);
         assert_eq!(
@@ -297,10 +299,60 @@ fn xstoon_stems_keep_expected_outline_and_stencil_pass_order() {
         );
         assert_eq!(passes[0].name, "forward", "{stem}");
     }
+}
 
+/// Verifies XSToon fade uses its source-authored alpha blend state.
+#[test]
+fn xstoon_fade_uses_source_alpha_blend_pass_state() {
+    let fade_passes = crate::embedded_shaders::embedded_target_passes("xstoon2.0-fade_default");
+    assert_eq!(fade_passes.len(), 1, "xstoon2.0-fade_default");
+    assert_eq!(fade_passes[0].name, "forward_alpha_blend");
+    assert_eq!(fade_passes[0].cull_mode, Some(wgpu::Face::Back));
+    assert!(!fade_passes[0].depth_write);
+    let fade_blend = fade_passes[0].blend.expect("xstoon2.0-fade blend");
+    assert_eq!(fade_blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(
+        fade_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+    assert_eq!(fade_blend.alpha.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(
+        fade_blend.alpha.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+}
+
+/// Verifies XSToon transparent uses its source-authored premultiplied blend state.
+#[test]
+fn xstoon_transparent_uses_source_premultiplied_pass_state() {
+    let transparent_passes =
+        crate::embedded_shaders::embedded_target_passes("xstoon2.0-transparent_default");
+    assert_eq!(transparent_passes.len(), 1, "xstoon2.0-transparent_default");
+    assert_eq!(
+        transparent_passes[0].name,
+        "forward_premultiplied_transparent"
+    );
+    assert_eq!(transparent_passes[0].cull_mode, Some(wgpu::Face::Back));
+    assert!(!transparent_passes[0].depth_write);
+    let transparent_blend = transparent_passes[0]
+        .blend
+        .expect("xstoon2.0-transparent blend");
+    assert_eq!(transparent_blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(
+        transparent_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+}
+
+/// Verifies XSToon stenciler keeps its source-authored color and depth state.
+#[test]
+fn xstoon_stenciler_uses_source_stencil_pass_state() {
     let stencil_passes = crate::embedded_shaders::embedded_target_passes("xstoonstenciler_default");
     assert_eq!(stencil_passes.len(), 1, "xstoonstenciler_default");
     assert_eq!(stencil_passes[0].name, "stencil", "xstoonstenciler_default");
+    assert_eq!(stencil_passes[0].cull_mode, Some(wgpu::Face::Front));
+    assert_eq!(stencil_passes[0].write_mask, wgpu::ColorWrites::ALL);
+    assert!(!stencil_passes[0].depth_write);
 }
 
 /// Verifies XSToon alpha-to-coverage variants request the matching pipeline state.
