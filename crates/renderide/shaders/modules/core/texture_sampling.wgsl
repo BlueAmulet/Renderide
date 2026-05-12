@@ -30,3 +30,9 @@ fn sample_tex_3d(tex: texture_3d<f32>, samp: sampler, uvw: vec3<f32>, lod_bias: 
     let uvw_flipped = vec3<f32>(uvw.x, 1.0 - uvw.y, uvw.z);
     return textureSampleBias(tex, samp, uvw_flipped, lod_bias);
 }
+
+/// Samples a 3D texture at an explicit LOD while preserving the renderer's Texture3D V convention.
+fn sample_tex_3d_level(tex: texture_3d<f32>, samp: sampler, uvw: vec3<f32>, level: f32) -> vec4<f32> {
+    let uvw_flipped = vec3<f32>(uvw.x, 1.0 - uvw.y, uvw.z);
+    return textureSampleLevel(tex, samp, uvw_flipped, level);
+}

@@ -233,12 +233,16 @@ mod tests {
                     fragment_entry: "fs_main".to_string(),
                     vertex_entry: "vs_main".to_string(),
                     alpha_to_coverage: true,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
                 },
                 BuildPassDirective {
                     kind: BuildPassKind::Outline,
                     fragment_entry: "fs_outline".to_string(),
                     vertex_entry: "vs_outline".to_string(),
                     alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
                 },
             ],
         );

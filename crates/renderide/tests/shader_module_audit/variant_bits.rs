@@ -102,6 +102,50 @@ fn channelmatrix_uses_reserved_variant_bits() -> io::Result<()> {
 }
 
 #[test]
+fn hsv_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader("hsv.wgsl", &["RECTCLIP"], &[("HSV_KW_RECTCLIP", 0)])
+}
+
+#[test]
+fn invert_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader("invert.wgsl", &["RECTCLIP"], &[("INVERT_KW_RECTCLIP", 0)])
+}
+
+#[test]
+fn lut_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "lut.wgsl",
+        &["LERP", "RECTCLIP", "SRGB"],
+        &[
+            ("LUT_KW_LERP", 0),
+            ("LUT_KW_RECTCLIP", 1),
+            ("LUT_KW_SRGB", 2),
+        ],
+    )
+}
+
+#[test]
+fn lut_perobject_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "lut_perobject.wgsl",
+        &["LERP", "RECTCLIP"],
+        &[
+            ("LUT_PEROBJECT_KW_LERP", 0),
+            ("LUT_PEROBJECT_KW_RECTCLIP", 1),
+        ],
+    )
+}
+
+#[test]
+fn matcap_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "matcap.wgsl",
+        &["_NORMALMAP"],
+        &[("MATCAP_KW_NORMALMAP", 0)],
+    )
+}
+
+#[test]
 fn cubemapprojection_uses_reserved_variant_bits() -> io::Result<()> {
     assert_variant_bits_shader(
         "cubemapprojection.wgsl",
@@ -279,6 +323,62 @@ fn pixelate_resolution_tex_sample_is_keyword_gated() -> io::Result<()> {
 }
 
 #[test]
+fn material_shaders_21_30_preserve_source_parity_gaps() -> io::Result<()> {
+    let invisible = material_source("invisible.wgsl")?;
+    assert!(
+        !invisible.contains("struct InvisibleMaterial")
+            && !invisible.contains("@group(1)")
+            && invisible.contains("rg::retain_globals_additive(vec4<f32>(0.0))"),
+        "Invisible must not declare synthetic material properties absent from Unity"
+    );
+
+    let lut = material_source("lut.wgsl")?;
+    assert!(
+        !lut.contains("_LUT_LodBias")
+            && !lut.contains("_SecondaryLUT_LodBias")
+            && !lut.contains("clamp(normalized")
+            && lut.contains("ts::sample_tex_3d_level(_LUT, _LUT_sampler, coords, 0.0)")
+            && lut.contains(
+                "ts::sample_tex_3d_level(_SecondaryLUT, _SecondaryLUT_sampler, coords, 0.0)"
+            ),
+        "LUT must mirror Unity tex3Dlod level-0 sampling without synthetic LOD-bias uniforms or coordinate clamping"
+    );
+
+    let lut_perobject = material_source("lut_perobject.wgsl")?;
+    assert!(
+        !lut_perobject.contains("_LUT_LodBias")
+            && !lut_perobject.contains("_SecondaryLUT_LodBias")
+            && !lut_perobject.contains("clamp(c.rgb")
+            && lut_perobject.contains("ts::sample_tex_3d(_LUT, _LUT_sampler, coords, 0.0)")
+            && lut_perobject
+                .contains("ts::sample_tex_3d(_SecondaryLUT, _SecondaryLUT_sampler, coords, 0.0)"),
+        "LUT_PerObject must mirror Unity tex3D sampling without synthetic LOD-bias uniforms or coordinate clamping"
+    );
+
+    let nosamplers = material_source("nosamplers.wgsl")?;
+    assert!(
+        nosamplers.contains("var _Albedo1: texture_2d<f32>")
+            && nosamplers.contains("var _Albedo2: texture_2d<f32>")
+            && nosamplers.contains("var _Albedo3: texture_2d<f32>")
+            && !nosamplers.contains("textureSample(_Albedo1")
+            && !nosamplers.contains("textureSample(_Albedo2")
+            && !nosamplers.contains("textureSample(_Albedo3"),
+        "Nosamplers must preserve declared texture property names without adding non-source texture reads"
+    );
+
+    assert!(
+        material_source("newunlitshader.wgsl")?
+            .contains("//#pass forward offset_factor=0 offset_units=1"),
+        "NewUnlitShader must preserve Unity Offset 0, 1"
+    );
+    assert!(
+        material_source("null.wgsl")?.contains("//#pass forward offset_factor=2 offset_units=2"),
+        "Null must preserve Unity Offset 2, 2"
+    );
+    Ok(())
+}
+
+#[test]
 fn unlitdistancelerp_uses_reserved_variant_bits() -> io::Result<()> {
     assert_variant_bits_shader(
         "unlitdistancelerp.wgsl",
@@ -333,6 +433,16 @@ fn blur_perobject_is_source_alias_wrapper() -> io::Result<()> {
 #[test]
 fn channelmatrix_perobject_is_source_alias_wrapper() -> io::Result<()> {
     assert_source_alias_wrapper("channelmatrix_perobject.wgsl", "channelmatrix")
+}
+
+#[test]
+fn hsv_perobject_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("hsv_perobject.wgsl", "hsv")
+}
+
+#[test]
+fn invert_perobject_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("invert_perobject.wgsl", "invert")
 }
 
 #[test]

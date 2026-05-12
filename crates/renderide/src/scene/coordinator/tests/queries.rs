@@ -663,18 +663,15 @@ fn full_pipeline_overlay_vertex_projects_to_screen_ndc() {
     let origin_ndc_z = origin_clip.z / origin_clip.w;
     assert!(
         origin_ndc_x.abs() < 1e-4,
-        "expected NDC x≈0 (screen center), got {}",
-        origin_ndc_x,
+        "expected NDC x≈0 (screen center), got {origin_ndc_x}",
     );
     assert!(
         origin_ndc_y.abs() < 1e-4,
-        "expected NDC y≈0 (screen center), got {}",
-        origin_ndc_y,
+        "expected NDC y≈0 (screen center), got {origin_ndc_y}",
     );
     assert!(
         (0.0..=1.0).contains(&origin_ndc_z),
-        "expected NDC z in [0, 1] for reverse-Z (view-shift pushes vertex into frustum), got {}",
-        origin_ndc_z,
+        "expected NDC z in [0, 1] for reverse-Z (view-shift pushes vertex into frustum), got {origin_ndc_z}",
     );
 
     // Vertex at curved plane's local (+0.5, 0, 0): with VisualsRoot scale 1.5 -> overlay-local
@@ -685,14 +682,11 @@ fn full_pipeline_overlay_vertex_projects_to_screen_ndc() {
     let expected_x = 0.75 * 2.0 * 1080.0 / 1920.0;
     assert!(
         (right_ndc_x - expected_x).abs() < 1e-3,
-        "expected NDC x≈{}, got {}",
-        expected_x,
-        right_ndc_x,
+        "expected NDC x≈{expected_x}, got {right_ndc_x}",
     );
     assert!(
         right_ndc_x.abs() < 1.0,
-        "NDC x must stay within [-1, 1] to be visible on screen; got {}",
-        right_ndc_x,
+        "NDC x must stay within [-1, 1] to be visible on screen; got {right_ndc_x}",
     );
 }
 
