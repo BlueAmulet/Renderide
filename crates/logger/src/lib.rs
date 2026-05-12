@@ -14,9 +14,10 @@
 //!
 //! # Layout
 //!
-//! Logs default to **`Renderide/logs/<component>/<UTC-date>_<UTC-time-to-the-second>.log`**, where
-//! `<component>` is one of [`LogComponent`]. The repository root is inferred from this crate's
-//! manifest path: `.../Renderide/crates/logger` -> two levels up -> `.../Renderide/logs`.
+//! Logs default to **`<root>/<component>/<UTC-date>_<UTC-time-to-the-second>.log`**, where
+//! `<component>` is one of [`LogComponent`]. Runtime root selection prefers an explicit override,
+//! then a discovered Renderide checkout's `logs` folder, then the current user's platform log
+//! directory, then executable-adjacent and temp-directory fallbacks.
 //!
 //! Override the root directory with the **`RENDERIDE_LOGS_ROOT`** environment variable; the value
 //! is used as-is as the logs root for all components.
