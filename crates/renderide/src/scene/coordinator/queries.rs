@@ -225,6 +225,16 @@ fn nearest_special_layer_ancestor(
     None
 }
 
+/// Builds the matrix that maps points from `transform_index`'s local frame into
+/// `ancestor_index`'s local frame. Multiplies every intermediate node's local transform but
+/// **stops before** multiplying the ancestor's own local -- the ancestor's own local transform is
+/// the ancestor's pose relative to *its* parent, not part of expressing children in ancestor-local
+/// coordinates.
+///
+/// Concrete bug this avoids: for overlay-layer items, the ancestor is the OverlayRoot slot. If
+/// the OverlayRoot has any local rotation / position / scale (it does -- it's positioned under
+/// `OverlayManager.Slot`), folding that into the model matrix here rotates / shifts every overlay
+/// draw by OverlayRoot's pose, breaking the screen-space layout that the overlay-ortho assumes.
 fn matrix_from_ancestor_for_context(
     space: &RenderSpaceState,
     transform_index: usize,
@@ -238,11 +248,11 @@ fn matrix_from_ancestor_for_context(
     let mut cursor = transform_index;
     let mut matrix = Mat4::IDENTITY;
     for _ in 0..space.nodes.len() {
-        let (local, _) = local_transform_for_context(space, cursor, context);
-        matrix = render_transform_to_matrix(&local) * matrix;
         if cursor == ancestor_index {
             return Some(matrix);
         }
+        let (local, _) = local_transform_for_context(space, cursor, context);
+        matrix = render_transform_to_matrix(&local) * matrix;
         let parent = *space.node_parents.get(cursor).unwrap_or(&-1);
         if parent < 0 || parent as usize >= space.nodes.len() || parent == cursor as i32 {
             break;

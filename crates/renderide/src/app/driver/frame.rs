@@ -275,7 +275,7 @@ impl AppDriver {
             && self
                 .runtime
                 .scene()
-                .desktop_blit_for_display(super::DESKTOP_DISPLAY_INDEX)
+                .active_blit_for_display(super::DESKTOP_DISPLAY_INDEX)
                 .is_some();
         let result = match mode {
             FrameRenderMode::HmdMultiview => Ok(()),
