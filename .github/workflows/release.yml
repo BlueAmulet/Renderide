@@ -47,13 +47,13 @@ jobs:
           rust_shas=$(
             gh api -X GET \
               "repos/${GITHUB_REPOSITORY}/actions/workflows/rust-ci.yml/runs" \
-              -f branch=master -f status=success -F per_page=30 \
+              -f branch=master -f status=success -F per_page=100 \
               | jq -c '[.workflow_runs | sort_by(.created_at) | reverse | .[].head_sha]'
           )
           dotnet_shas=$(
             gh api -X GET \
               "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs" \
-              -f branch=master -f status=success -F per_page=30 \
+              -f branch=master -f status=success -F per_page=100 \
               | jq -c '[.workflow_runs | sort_by(.created_at) | reverse | .[].head_sha]'
           )
 
