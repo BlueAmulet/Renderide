@@ -1,5 +1,6 @@
 //! [`SetCubemapData`](crate::shared::SetCubemapData) -> cubemap array layers ([`super::mip_write_common::write_cubemap_face_mip`]).
 
+use crate::gpu::GpuQueueAccessMode;
 use crate::shared::{SetCubemapData, SetCubemapFormat};
 
 use super::super::decode::needs_rgba8_decode_before_upload;
@@ -12,6 +13,7 @@ use super::mip_chain_walk::{MipChainStop, resolve_mip_payload_slot};
 use super::mip_write_common::{
     CubemapFaceMipWrite, MipUploadFormatCtx, MipUploadLabel, MipUploadPixels,
     mip_src_to_upload_pixels as shared_mip_src_to_upload_pixels, write_cubemap_face_mip,
+    write_cubemap_face_mip_with_gate,
 };
 use super::write_mip_chain::MipChainAdvance;
 
@@ -111,6 +113,8 @@ pub struct CubemapFaceMipUploadStep<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this upload step.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination cubemap texture.
     pub texture: &'a wgpu::Texture,
     /// Host format.
@@ -249,6 +253,12 @@ impl CubemapMipChainUploader {
             return Ok(None);
         };
         profiling::scope!("asset::cubemap_poll_decoded_mip");
+        if matches!(step.queue_access_mode, GpuQueueAccessMode::NonBlocking) {
+            let Some(gate) = step.gpu_queue_access_gate.try_lock() else {
+                return Ok(Some(MipChainAdvance::YieldBackground));
+            };
+            return self.poll_background_decoded_mip_with_gate(step, &gate);
+        }
         match rx.try_recv() {
             Ok(res) => {
                 self.background_rx = None;
@@ -262,6 +272,7 @@ impl CubemapMipChainUploader {
                 write_cubemap_face_mip(&CubemapFaceMipWrite {
                     queue: step.queue,
                     gpu_queue_access_gate: step.gpu_queue_access_gate,
+                    queue_access_mode: step.queue_access_mode,
                     texture: step.texture,
                     mip_level,
                     face_layer: face,
@@ -293,6 +304,67 @@ impl CubemapMipChainUploader {
             }
             Err(crossbeam_channel::TryRecvError::Disconnected) => Err(TextureUploadError::from(
                 "Background decode thread panicked",
+            )),
+        }
+    }
+
+    fn poll_background_decoded_mip_with_gate(
+        &mut self,
+        step: &CubemapFaceMipUploadStep<'_>,
+        gate: &parking_lot::MutexGuard<'_, ()>,
+    ) -> Result<Option<MipChainAdvance>, TextureUploadError> {
+        let rx = self.background_rx.as_ref().ok_or_else(|| {
+            TextureUploadError::from(
+                "cubemap_write: locked background poll without a decode receiver; state machine desync",
+            )
+        })?;
+        match rx.try_recv() {
+            Ok(res) => {
+                self.background_rx = None;
+                let pixels = res?;
+                let (face, mip_level, w, h) = self.pending_mip.take().ok_or_else(|| {
+                    TextureUploadError::from(
+                        "cubemap_write: background decode completed without a pending mip slot; state machine desync",
+                    )
+                })?;
+
+                write_cubemap_face_mip_with_gate(
+                    &CubemapFaceMipWrite {
+                        queue: step.queue,
+                        gpu_queue_access_gate: step.gpu_queue_access_gate,
+                        queue_access_mode: step.queue_access_mode,
+                        texture: step.texture,
+                        mip_level,
+                        face_layer: face,
+                        width: w,
+                        height: h,
+                        format: step.wgpu_format,
+                        bytes: &pixels.bytes,
+                    },
+                    gate,
+                )?;
+
+                self.storage_v_inverted |= pixels.storage_v_inverted;
+                self.uploaded += 1;
+                self.mip_i += 1;
+                self.advance_face_if_mip_limit_reached(step.upload);
+
+                if self.face >= 6 {
+                    return Ok(Some(MipChainAdvance::Finished {
+                        total_uploaded: self.uploaded,
+                        storage_v_inverted: self.storage_v_inverted,
+                    }));
+                }
+                Ok(Some(MipChainAdvance::UploadedOne {
+                    total_uploaded: self.uploaded,
+                    storage_v_inverted: self.storage_v_inverted,
+                }))
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                Ok(Some(MipChainAdvance::YieldBackground))
+            }
+            Err(crossbeam_channel::TryRecvError::Disconnected) => Err(TextureUploadError::from(
+                "Background cubemap decode thread panicked",
             )),
         }
     }

@@ -6,6 +6,7 @@ use crate::assets::texture::{
     MipChainAdvance, Texture2dUploadContext, TextureDataStart, TextureMipChainUploader,
     TextureMipUploadStep, TextureUploadError, texture_upload_start,
 };
+use crate::gpu::GpuQueueAccessMode;
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{SetTexture2DData, SetTexture2DFormat};
 
@@ -19,6 +20,8 @@ pub(crate) struct TextureUploadPlan<'a> {
     pub(crate) queue: &'a wgpu::Queue,
     /// Shared gate held around GPU queue access to avoid write/submit lock inversion.
     pub(crate) gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy used by texture writes in this drain.
+    pub(crate) queue_access_mode: GpuQueueAccessMode,
     /// Destination GPU texture.
     pub(crate) texture: &'a wgpu::Texture,
     /// Host-side format record for the texture.
@@ -115,6 +118,7 @@ impl TextureUploadStepper {
                     device: plan.device,
                     queue: plan.queue,
                     gpu_queue_access_gate: plan.gpu_queue_access_gate,
+                    queue_access_mode: plan.queue_access_mode,
                     texture: plan.texture,
                     fmt: plan.format,
                     wgpu_format: plan.wgpu_format,
@@ -154,6 +158,7 @@ impl TextureUploadStepper {
             device: plan.device,
             queue: plan.queue,
             gpu_queue_access_gate: plan.gpu_queue_access_gate,
+            queue_access_mode: plan.queue_access_mode,
             texture: plan.texture,
             fmt: plan.format,
             wgpu_format: plan.wgpu_format,

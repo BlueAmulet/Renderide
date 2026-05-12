@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use super::RendererRuntime;
 use crate::diagnostics::log_throttle::LogThrottle;
+use crate::gpu::GpuQueueAccessMode;
 
 static ASSET_INTEGRATION_NO_SHM_LOG: LogThrottle = LogThrottle::new();
 static ASSET_INTEGRATION_BUDGET_LOG: LogThrottle = LogThrottle::new();
@@ -31,7 +32,7 @@ impl RendererRuntime {
         if self.tick_state.did_integrate_assets_this_tick() {
             return;
         }
-        let Some(summary) = self.run_asset_integration_pass() else {
+        let Some(summary) = self.run_asset_integration_pass(GpuQueueAccessMode::Blocking) else {
             return;
         };
         trace_asset_integration_summary(self.asset_integration_budget_ms(), summary);
@@ -61,7 +62,7 @@ impl RendererRuntime {
             }
             return false;
         }
-        let Some(summary) = self.run_asset_integration_pass() else {
+        let Some(summary) = self.run_asset_integration_pass(GpuQueueAccessMode::NonBlocking) else {
             return false;
         };
         let budget_ms = self.asset_integration_budget_ms();
@@ -94,6 +95,7 @@ impl RendererRuntime {
 
     fn run_asset_integration_pass(
         &mut self,
+        queue_access_mode: GpuQueueAccessMode,
     ) -> Option<crate::backend::AssetIntegrationDrainSummary> {
         let budget_ms = self.asset_integration_budget_ms();
         let now = Instant::now();
@@ -113,9 +115,13 @@ impl RendererRuntime {
             return None;
         };
         let mut ipc_opt = ipc;
-        let summary =
-            self.backend
-                .drain_asset_tasks(shm, &mut ipc_opt, deadline, particle_deadline);
+        let summary = self.backend.drain_asset_tasks(
+            shm,
+            &mut ipc_opt,
+            deadline,
+            particle_deadline,
+            queue_access_mode,
+        );
         Some(summary)
     }
 

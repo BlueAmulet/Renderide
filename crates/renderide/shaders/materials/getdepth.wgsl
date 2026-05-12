@@ -69,8 +69,8 @@ fn fs_main(vout: fv::RectVertexOutput) -> @location(0) vec4<f32> {
 
     var depth = sds::scene_linear_depth(vout.clip_pos, vout.view_layer);
     if (kw_CLIP()) {
-        let range = max(mat._ClipMax - mat._ClipMin, 1e-6);
-        depth = (depth - mat._ClipMin) / range;
+        depth = depth - mat._ClipMin;
+        depth = depth / (mat._ClipMax - mat._ClipMin);
     }
     depth = depth * mat._Multiply + mat._Offset;
     depth = clamp(depth, 0.0, 1.0);

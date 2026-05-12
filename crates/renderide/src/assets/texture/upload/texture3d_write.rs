@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::gpu::GpuQueueAccessMode;
 use crate::shared::{SetTexture3DData, SetTexture3DFormat};
 
 use super::super::decode::{decode_mip_to_rgba8, needs_rgba8_decode_before_upload};
@@ -12,6 +13,7 @@ use super::super::layout::{
 use super::error::TextureUploadError;
 use super::mip_write_common::{
     MipUploadFormatCtx, Texture3dVolumeMipWrite, is_rgba8_family, write_texture3d_volume_mip,
+    write_texture3d_volume_mip_with_gate,
 };
 
 /// Per-level 3D geometry bundle: volume dimensions plus the tight slice / volume byte sizes for
@@ -165,6 +167,8 @@ pub struct Texture3dMipUploadStep<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this upload step.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination volume texture.
     pub texture: &'a wgpu::Texture,
     /// Host format descriptor.
@@ -290,6 +294,7 @@ impl Texture3dMipChainUploader {
             device,
             queue,
             gpu_queue_access_gate,
+            queue_access_mode,
             texture,
             fmt,
             wgpu_format,
@@ -301,6 +306,22 @@ impl Texture3dMipChainUploader {
             return Ok(Texture3dMipAdvance::Finished {
                 total_uploaded: self.uploaded_mips,
             });
+        }
+
+        if matches!(queue_access_mode, GpuQueueAccessMode::NonBlocking)
+            && self.background_rx.is_some()
+        {
+            let Some(gate) = gpu_queue_access_gate.try_lock() else {
+                return Ok(Texture3dMipAdvance::YieldBackground);
+            };
+            return self.poll_background_mip_with_gate(
+                queue,
+                gpu_queue_access_gate,
+                queue_access_mode,
+                texture,
+                wgpu_format,
+                &gate,
+            );
         }
 
         if let Some(rx) = &self.background_rx {
@@ -318,6 +339,7 @@ impl Texture3dMipChainUploader {
                     write_texture3d_volume_mip(&Texture3dVolumeMipWrite {
                         queue,
                         gpu_queue_access_gate,
+                        queue_access_mode,
                         texture,
                         mip_level: level,
                         width: w,
@@ -348,6 +370,18 @@ impl Texture3dMipChainUploader {
             }
         }
 
+        self.spawn_next_mip_decode(device, fmt, wgpu_format, upload, payload, level)
+    }
+
+    fn spawn_next_mip_decode(
+        &mut self,
+        device: &wgpu::Device,
+        fmt: &SetTexture3DFormat,
+        wgpu_format: wgpu::TextureFormat,
+        upload: &SetTexture3DData,
+        payload: &Arc<[u8]>,
+        level: u32,
+    ) -> Result<Texture3dMipAdvance, TextureUploadError> {
         profiling::scope!("asset::texture3d_spawn_mip_decode");
         let (w, h, d, mip_src, slice_bytes, vol_bytes) = texture3d_mip_volume_payload_slice(
             self.base_w,
@@ -394,5 +428,63 @@ impl Texture3dMipChainUploader {
         });
 
         Ok(Texture3dMipAdvance::YieldBackground)
+    }
+
+    fn poll_background_mip_with_gate(
+        &mut self,
+        queue: &wgpu::Queue,
+        gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
+        queue_access_mode: GpuQueueAccessMode,
+        texture: &wgpu::Texture,
+        wgpu_format: wgpu::TextureFormat,
+        gate: &parking_lot::MutexGuard<'_, ()>,
+    ) -> Result<Texture3dMipAdvance, TextureUploadError> {
+        profiling::scope!("asset::texture3d_poll_decoded_mip_locked");
+        let rx = self.background_rx.as_ref().ok_or_else(|| {
+            TextureUploadError::from(
+                "texture3d_write: locked background poll without a decode receiver; state machine desync",
+            )
+        })?;
+        match rx.try_recv() {
+            Ok(res) => {
+                self.background_rx = None;
+                let pixels = res?;
+                let (level, w, h, d) = self.pending_mip.take().ok_or_else(|| {
+                    TextureUploadError::from(
+                        "texture3d_write: background decode completed without a pending mip slot; state machine desync",
+                    )
+                })?;
+
+                write_texture3d_volume_mip_with_gate(
+                    &Texture3dVolumeMipWrite {
+                        queue,
+                        gpu_queue_access_gate,
+                        queue_access_mode,
+                        texture,
+                        mip_level: level,
+                        width: w,
+                        height: h,
+                        depth: d,
+                        format: wgpu_format,
+                        bytes: &pixels,
+                    },
+                    gate,
+                )?;
+
+                self.uploaded_mips += 1;
+                self.next_mip += 1;
+
+                if self.next_mip >= self.mipmap_count {
+                    return Ok(Texture3dMipAdvance::Finished {
+                        total_uploaded: self.uploaded_mips,
+                    });
+                }
+                Ok(Texture3dMipAdvance::UploadedOne)
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => Ok(Texture3dMipAdvance::YieldBackground),
+            Err(crossbeam_channel::TryRecvError::Disconnected) => Err(TextureUploadError::from(
+                "Background texture3d decode thread panicked",
+            )),
+        }
     }
 }

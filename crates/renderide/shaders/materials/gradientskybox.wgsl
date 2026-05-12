@@ -1,9 +1,9 @@
 //! Unity GradientSkybox (`Shader "GradientSkybox"`): sky gradient material.
 
 
-#import renderide::frame::globals as rg
 #import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
+#import renderide::skybox::gradient as skygrad
 
 struct GradientSkyboxMaterial {
     _BaseColor: vec4<f32>,
@@ -19,29 +19,6 @@ struct GradientSkyboxMaterial {
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) ray: vec3<f32>,
-}
-
-fn gradient_color(ray_in: vec3<f32>) -> vec4<f32> {
-    let ray = normalize(ray_in);
-    var col = mat._BaseColor.rgb;
-    let count = min(u32(max(mat._Gradients, 0.0)), 16u);
-    for (var i = 0u; i < count; i = i + 1u) {
-        let dirs_spread = mat._DirsSpread[i];
-        let params = mat._Params[i];
-        var r = 0.5 - dot(ray, dirs_spread.xyz) * 0.5;
-        r = r / dirs_spread.w;
-        if (r <= 1.0) {
-            r = pow(r, params.y);
-            r = clamp((r - params.z) / (params.w - params.z), 0.0, 1.0);
-            let c = mix(mat._Color0[i], mat._Color1[i], r);
-            if (params.x == 0.0) {
-                col = col * (1.0 - c.a) + c.rgb * c.a;
-            } else {
-                col = col + c.rgb * c.a;
-            }
-        }
-    }
-    return rg::retain_globals_additive(vec4<f32>(col, 1.0));
 }
 
 @vertex
@@ -68,5 +45,13 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return gradient_color(in.ray);
+    return skygrad::gradient_sky_color(
+        mat._BaseColor,
+        mat._Gradients,
+        mat._DirsSpread,
+        mat._Color0,
+        mat._Color1,
+        mat._Params,
+        in.ray,
+    );
 }

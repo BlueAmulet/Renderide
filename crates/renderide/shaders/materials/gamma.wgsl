@@ -54,6 +54,6 @@ fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
     }
 
     let c = gp::sample_scene_color(gp::frag_screen_uv(in.clip_pos), in.view_layer);
-    let filtered = pow(max(c.rgb, vec3<f32>(0.0)), vec3<f32>(max(mat._Gamma, 1e-4)));
+    let filtered = pow(c.rgb, vec3<f32>(mat._Gamma));
     return rg::retain_globals_additive(vec4<f32>(filtered, c.a));
 }

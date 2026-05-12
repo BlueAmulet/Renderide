@@ -131,6 +131,47 @@ fn material_roots_do_not_redeclare_shared_helpers() -> io::Result<()> {
 }
 
 #[test]
+fn gradient_skybox_roots_use_shared_evaluator() -> io::Result<()> {
+    let roots = [
+        (
+            "materials/gradientskybox.wgsl",
+            material_source("gradientskybox.wgsl")?,
+        ),
+        (
+            "passes/backend/skybox_gradientskybox.wgsl",
+            source_file(manifest_dir().join("shaders/passes/backend/skybox_gradientskybox.wgsl"))?,
+        ),
+    ];
+
+    for (label, src) in roots {
+        assert!(
+            src.contains("renderide::skybox::gradient as skygrad")
+                && src.contains("skygrad::gradient_sky_color(")
+                && src.contains("mat._BaseColor")
+                && src.contains("mat._Params")
+                && !src.contains("fn gradient_color("),
+            "{label} must route GradientSkybox evaluation through the shared skybox module",
+        );
+    }
+
+    let module = source_file(manifest_dir().join("shaders/modules/skybox/gradient.wgsl"))?;
+    for required in [
+        "#define_import_path renderide::skybox::gradient",
+        "fn gradient_sky_color(",
+        "dirs_spread_values: array<vec4<f32>, 16>",
+        "param_values: array<vec4<f32>, 16>",
+        "let ray = normalize(ray_in);",
+    ] {
+        assert!(
+            module.contains(required),
+            "skybox/gradient.wgsl must contain `{required}`",
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn normal_decode_scales_xy_before_reconstructing_z() -> io::Result<()> {
     let src = source_file(manifest_dir().join("shaders/modules/core/normal_decode.wgsl"))?;
     let xy_scale = src

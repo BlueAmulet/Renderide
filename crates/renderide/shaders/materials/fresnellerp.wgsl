@@ -110,7 +110,7 @@ fn compute_lerp(uv: vec2<f32>) -> f32 {
             l = l * mat._Lerp;
         }
     }
-    return clamp(l, 0.0, 1.0);
+    return l;
 }
 
 fn sample_normal(uv: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, l: f32) -> vec3<f32> {
