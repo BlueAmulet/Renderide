@@ -3,6 +3,7 @@
 use std::mem::size_of;
 
 use crate::ipc::SharedMemoryAccessor;
+use crate::shared::buffer::SharedMemoryBufferDescriptor;
 use crate::shared::{
     LIGHT_STATE_HOST_ROW_BYTES, LIGHTS_BUFFER_RENDERER_STATE_HOST_ROW_BYTES,
     LightRenderablesUpdate, LightState, LightsBufferRendererState, LightsBufferRendererUpdate,
@@ -41,9 +42,11 @@ pub fn apply_light_renderables_update(
 
     let states = if update.states.length >= state_size {
         let ctx = format!("light renderables states space_id={space_id}");
-        shm.access_copy_memory_packable_rows::<LightState>(
+        let max_bytes = packable_row_copy_max_bytes(&update.states);
+        shm.access_copy_memory_packable_rows_with_max::<LightState>(
             &update.states,
             LIGHT_STATE_HOST_ROW_BYTES,
+            max_bytes,
             Some(&ctx),
         )
         .map_err(SceneError::SharedMemoryAccess)?
@@ -84,9 +87,11 @@ pub fn apply_lights_buffer_renderers_update(
 
     let states = if update.states.length >= state_size {
         let ctx = format!("lights buffer renderers states space_id={space_id}");
-        shm.access_copy_memory_packable_rows::<LightsBufferRendererState>(
+        let max_bytes = packable_row_copy_max_bytes(&update.states);
+        shm.access_copy_memory_packable_rows_with_max::<LightsBufferRendererState>(
             &update.states,
             LIGHTS_BUFFER_RENDERER_STATE_HOST_ROW_BYTES,
+            max_bytes,
             Some(&ctx),
         )
         .map_err(SceneError::SharedMemoryAccess)?
@@ -96,4 +101,25 @@ pub fn apply_lights_buffer_renderers_update(
 
     light_cache.apply_update(space_id, &removals, &additions, &states);
     Ok(())
+}
+
+/// Per-descriptor byte ceiling for row-packed light state copies.
+///
+/// Mirrors the transform pose update sizing: take the host-declared
+/// `buffer_capacity` minus `offset` as the upper bound and never let the
+/// returned ceiling fall below [`SharedMemoryAccessor::MAX_ACCESS_COPY_BYTES`],
+/// so corrupt descriptors still get the default guard while legitimately large
+/// payloads (single-frame light counts spanning multiple million rows) are
+/// accepted instead of crashing the renderer.
+fn packable_row_copy_max_bytes(descriptor: &SharedMemoryBufferDescriptor) -> i32 {
+    let descriptor_sized_bytes = usize::try_from(descriptor.buffer_capacity)
+        .ok()
+        .and_then(|capacity| {
+            let offset = usize::try_from(descriptor.offset).ok()?;
+            capacity.checked_sub(offset)
+        })
+        .unwrap_or(0);
+    descriptor_sized_bytes
+        .max(SharedMemoryAccessor::MAX_ACCESS_COPY_BYTES as usize)
+        .min(i32::MAX as usize) as i32
 }
