@@ -7,16 +7,10 @@
 //! Unity reference's smaller property block. Mirrors `pbsdualsided.wgsl` shading without the
 //! front-face flip.
 //!
-//! Emission picks up a Fresnel rim term driven by `_RimColor` / `_RimPower`. The Unity surf
-//! function declares the rim variable but never composites it into `o.Emission`; this port adds
-//! the missing add-back so the rim properties are observable.
-//!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSStencil's
 //! shader-specific keyword bits locally.
 
 
-#import renderide::frame::globals as rg
-#import renderide::material::fresnel as mf
 #import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
@@ -27,12 +21,10 @@
 struct PbsStencilMaterial {
     _Color: vec4<f32>,
     _EmissionColor: vec4<f32>,
-    _RimColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
     _NormalScale: f32,
     _Glossiness: f32,
     _Metallic: f32,
-    _RimPower: f32,
     _RenderideVariantBits: u32,
 }
 
@@ -145,12 +137,8 @@ fn shade(
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 
-    let n = sample_normal_world(uv_main, world_n, world_t);
-    let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
-    let rim = mf::rim_factor(n, view_dir, mat._RimPower);
-    emission = emission + mat._RimColor.rgb * rim;
-
     let base_color = c.rgb;
+    let n = sample_normal_world(uv_main, world_n, world_t);
     let surface = psurf::metallic(base_color, c.a, metallic, roughness, occlusion, n, emission);
     let options = plight::ClusterLightingOptions(include_directional, include_local, true, true);
     return vec4<f32>(
