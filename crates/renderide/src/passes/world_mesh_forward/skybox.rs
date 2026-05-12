@@ -16,7 +16,8 @@ use crate::embedded_shaders;
 use crate::gpu::frame_bind_group_layout;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
 use crate::materials::{
-    EmbeddedTexturePools, MaterialRenderState, material_render_state_for_lookup,
+    EmbeddedMaterialBindShader, EmbeddedTexturePools, MaterialRenderState,
+    material_render_state_for_lookup,
 };
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::GraphPassFrame;
@@ -195,16 +196,21 @@ impl SkyboxRenderer {
         } else {
             SkyboxDepthState::for_family(family, MaterialRenderState::default())
         };
+        let shader_variant_bits = registry.variant_bits_for_shader_asset(shader_asset_id);
         let material_bind = embedded_bind
-            .embedded_material_bind_group(
-                stem.as_str(),
+            .embedded_material_bind_group_with_cache_key(
+                EmbeddedMaterialBindShader {
+                    stem: stem.as_str(),
+                    shader_variant_bits,
+                },
                 uploads,
                 store,
                 &pools,
                 lookup,
                 frame.view.offscreen_write_render_texture_asset_id,
             )
-            .ok()?;
+            .ok()
+            .map(|(_, group)| group)?;
         let material_layout = embedded_bind
             .embedded_material_bind_group_layout(stem.as_str())
             .ok()?;

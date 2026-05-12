@@ -7,11 +7,11 @@ use super::handles::{MainGraphHandles, MainGraphPostProcessingResources};
 
 /// Builds the canonical post-processing chain.
 ///
-/// Execution order is GTAO -> auto-exposure -> bloom -> ACES tonemap -> AgX tonemap. GTAO runs
-/// first so ambient occlusion modulates linear HDR light before metering; auto-exposure meters and
-/// scales the HDR scene before bloom; bloom scatters exposed HDR light; then ACES compresses the
-/// final exposed HDR signal to display-referred `[0, 1]`. Each effect gates itself via
-/// [`post_process_chain::PostProcessEffect::is_enabled`] against the live
+/// Execution order is GTAO -> auto-exposure -> bloom -> selected tonemap. GTAO runs first so
+/// ambient occlusion modulates linear HDR light before metering; auto-exposure meters and scales
+/// the HDR scene before bloom; bloom scatters exposed HDR light; then the selected tonemap curve
+/// compresses the final exposed HDR signal to display-referred `[0, 1]`. Each effect gates itself
+/// via [`post_process_chain::PostProcessEffect::is_enabled`] against the live
 /// [`crate::config::PostProcessingSettings`].
 ///
 /// `GtaoEffect` is parameterised with the current [`crate::config::GtaoSettings`] snapshot and the

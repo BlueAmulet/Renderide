@@ -1,9 +1,18 @@
 //! Fullscreen Projection360 sky draw.
+//!
+//! Material struct mirrors `materials/projection360.wgsl` exactly so the reflected
+//! `@group(1) @binding(0)` layout (which is taken from the material-side shader) matches
+//! this pass-side shader's bind requirement. Froox variant bits populate
+//! `_RenderideVariantBits`; this shader decodes Projection360's shader-specific keyword
+//! bits locally. Implicit defaults from each multi_compile group (`_VIEW`,
+//! `EQUIRECTANGULAR`, `OUTSIDE_CLIP`, `TINT_TEX_NONE`) reserve a bit but never need their
+//! helper consulted - the fallthrough branches handle them.
 
 #import renderide::skybox::cubemap_storage as cubemap_storage
 #import renderide::frame::globals as rg
 #import renderide::skybox::common as skybox
 #import renderide::core::uv as uvu
+#import renderide::material::variant_bits as vb
 #import renderide::skybox::projection360 as p360
 
 struct Projection360Material {
@@ -27,25 +36,27 @@ struct Projection360Material {
     _Exposure: f32,
     _Gamma: f32,
     _MaxIntensity: f32,
-    _RectClip: f32,
-    _VIEW: f32,
-    _WORLD_VIEW: f32,
-    _NORMAL: f32,
-    _PERSPECTIVE: f32,
-    _RIGHT_EYE_ST: f32,
-    OUTSIDE_CLIP: f32,
-    OUTSIDE_COLOR: f32,
-    OUTSIDE_CLAMP: f32,
-    TINT_TEX_DIRECT: f32,
-    TINT_TEX_LERP: f32,
-    _CLAMP_INTENSITY: f32,
-    SECOND_TEXTURE: f32,
-    EQUIRECTANGULAR: f32,
-    CUBEMAP: f32,
-    CUBEMAP_LOD: f32,
-    _OFFSET: f32,
-    RECTCLIP: f32,
+    _RenderideVariantBits: u32,
 }
+
+const P360_KW_CUBEMAP: u32 = 1u << 0u;
+const P360_KW_CUBEMAP_LOD: u32 = 1u << 1u;
+const P360_KW_EQUIRECTANGULAR: u32 = 1u << 2u;
+const P360_KW_OUTSIDE_CLAMP: u32 = 1u << 3u;
+const P360_KW_OUTSIDE_CLIP: u32 = 1u << 4u;
+const P360_KW_OUTSIDE_COLOR: u32 = 1u << 5u;
+const P360_KW_RECTCLIP: u32 = 1u << 6u;
+const P360_KW_SECOND_TEXTURE: u32 = 1u << 7u;
+const P360_KW_TINT_TEX_DIRECT: u32 = 1u << 8u;
+const P360_KW_TINT_TEX_LERP: u32 = 1u << 9u;
+const P360_KW_TINT_TEX_NONE: u32 = 1u << 10u;
+const P360_KW_CLAMP_INTENSITY: u32 = 1u << 11u;
+const P360_KW_NORMAL: u32 = 1u << 12u;
+const P360_KW_OFFSET: u32 = 1u << 13u;
+const P360_KW_PERSPECTIVE: u32 = 1u << 14u;
+const P360_KW_RIGHT_EYE_ST: u32 = 1u << 15u;
+const P360_KW_VIEW: u32 = 1u << 16u;
+const P360_KW_WORLD_VIEW: u32 = 1u << 17u;
 
 @group(1) @binding(0) var<uniform> mat: Projection360Material;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
@@ -64,6 +75,22 @@ struct Projection360Material {
 @group(1) @binding(14) var _SecondCube_sampler: sampler;
 @group(2) @binding(0) var<uniform> view: skybox::SkyboxView;
 
+fn proj360_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_CUBEMAP() -> bool { return proj360_kw(P360_KW_CUBEMAP); }
+fn kw_CUBEMAP_LOD() -> bool { return proj360_kw(P360_KW_CUBEMAP_LOD); }
+fn kw_OUTSIDE_CLAMP() -> bool { return proj360_kw(P360_KW_OUTSIDE_CLAMP); }
+fn kw_OUTSIDE_COLOR() -> bool { return proj360_kw(P360_KW_OUTSIDE_COLOR); }
+fn kw_SECOND_TEXTURE() -> bool { return proj360_kw(P360_KW_SECOND_TEXTURE); }
+fn kw_TINT_TEX_DIRECT() -> bool { return proj360_kw(P360_KW_TINT_TEX_DIRECT); }
+fn kw_TINT_TEX_LERP() -> bool { return proj360_kw(P360_KW_TINT_TEX_LERP); }
+fn kw_CLAMP_INTENSITY() -> bool { return proj360_kw(P360_KW_CLAMP_INTENSITY); }
+fn kw_OFFSET() -> bool { return proj360_kw(P360_KW_OFFSET); }
+fn kw_PERSPECTIVE() -> bool { return proj360_kw(P360_KW_PERSPECTIVE); }
+fn kw_RIGHT_EYE_ST() -> bool { return proj360_kw(P360_KW_RIGHT_EYE_ST); }
+
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) ndc: vec2<f32>,
@@ -71,7 +98,7 @@ struct VertexOutput {
 }
 
 fn apply_offset(view_dir: vec3<f32>) -> vec3<f32> {
-    if (!uvu::kw_enabled(mat._OFFSET)) {
+    if (!kw_OFFSET()) {
         return view_dir;
     }
 
@@ -86,30 +113,30 @@ fn apply_offset(view_dir: vec3<f32>) -> vec3<f32> {
 fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
     var uv = p360::dir_to_uv(view_dir, mat._FOV);
     if (p360::is_outside_uv(uv)) {
-        if (uvu::kw_enabled(mat.OUTSIDE_COLOR)) {
+        if (kw_OUTSIDE_COLOR()) {
             return mat._OutsideColor;
         }
-        if (!uvu::kw_enabled(mat.OUTSIDE_CLAMP)) {
+        if (!kw_OUTSIDE_CLAMP()) {
             discard;
         }
     }
     uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
 
     var st = mat._MainTex_ST;
-    if (uvu::kw_enabled(mat._RIGHT_EYE_ST) && view_layer != 0u) {
+    if (kw_RIGHT_EYE_ST() && view_layer != 0u) {
         st = mat._RightEye_ST;
     }
     let sample_uv = uvu::apply_st(uv, st);
     var c = textureSampleLevel(_MainTex, _MainTex_sampler, sample_uv, 0.0);
-    if (uvu::kw_enabled(mat.SECOND_TEXTURE)) {
+    if (kw_SECOND_TEXTURE()) {
         let secondary_offset = vec2<f32>(mat._SecondTexOffset.x, -mat._SecondTexOffset.y);
         let sc = textureSampleLevel(_SecondTex, _SecondTex_sampler, sample_uv + secondary_offset, 0.0);
         c = mix(c, sc, clamp(mat._TextureLerp, 0.0, 1.0));
     }
 
-    if (uvu::kw_enabled(mat.TINT_TEX_DIRECT)) {
+    if (kw_TINT_TEX_DIRECT()) {
         c = c * textureSampleLevel(_TintTex, _TintTex_sampler, sample_uv, 0.0);
-    } else if (uvu::kw_enabled(mat.TINT_TEX_LERP)) {
+    } else if (kw_TINT_TEX_LERP()) {
         let tint_uv = uvu::apply_st(uv, vec4<f32>(mat._TintTex_ST.xy, mat._TintTex_ST.w, mat._TintTex_ST.z));
         let l = textureSampleLevel(_TintTex, _TintTex_sampler, tint_uv, 0.0).r;
         c = c * mix(mat._Tint0, mat._Tint1, l);
@@ -120,12 +147,12 @@ fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
 fn sample_cubemap(view_dir: vec3<f32>) -> vec4<f32> {
     let dir = normalize(-view_dir);
     var lod = 0.0;
-    if (uvu::kw_enabled(mat.CUBEMAP_LOD)) {
+    if (kw_CUBEMAP_LOD()) {
         lod = mat._CubeLOD;
     }
     let main_dir = cubemap_storage::sample_dir(dir, mat._MainCube_StorageVInverted);
     var c = textureSampleLevel(_MainCube, _MainCube_sampler, main_dir, lod);
-    if (uvu::kw_enabled(mat.SECOND_TEXTURE)) {
+    if (kw_SECOND_TEXTURE()) {
         let second_dir = cubemap_storage::sample_dir(dir, mat._SecondCube_StorageVInverted);
         let sc = textureSampleLevel(_SecondCube, _SecondCube_sampler, second_dir, lod);
         c = mix(c, sc, clamp(mat._TextureLerp, 0.0, 1.0));
@@ -139,7 +166,7 @@ fn finish_color(c_in: vec4<f32>) -> vec4<f32> {
         mat._Tint,
         mat._Gamma,
         mat._Exposure,
-        uvu::kw_enabled(mat._CLAMP_INTENSITY),
+        kw_CLAMP_INTENSITY(),
         mat._MaxIntensity,
     );
     return rg::retain_globals_additive(c);
@@ -154,7 +181,7 @@ fn base_view_dir(ndc: vec2<f32>, view_layer: u32) -> vec3<f32> {
     );
     let camera_ray_world = skybox::world_ray_from_view_ray(camera_ray_view, view, view_layer);
 
-    if (uvu::kw_enabled(mat._PERSPECTIVE)) {
+    if (kw_PERSPECTIVE()) {
         return p360::perspective_view_dir_from_ndc(ndc, mat._PerspectiveFOV);
     }
     return normalize(-camera_ray_world);
@@ -183,7 +210,7 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_dir = apply_offset(base_view_dir(in.ndc, in.view_layer));
     var c: vec4<f32>;
-    if (uvu::kw_enabled(mat.CUBEMAP) || uvu::kw_enabled(mat.CUBEMAP_LOD)) {
+    if (kw_CUBEMAP() || kw_CUBEMAP_LOD()) {
         c = sample_cubemap(view_dir);
     } else {
         c = sample_equirect(view_dir, in.view_layer);

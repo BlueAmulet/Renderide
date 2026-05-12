@@ -170,7 +170,7 @@ impl SubmitFrame<'_> {
         let visible_deform_keys = visible_mesh_deform_keys_from_draw_plans(&self.view_draws);
         backend
             .frame_resources_mut()
-            .set_visible_mesh_deform_keys(visible_deform_keys);
+            .begin_mesh_deform_submission(visible_deform_keys);
         let mut views = self.prepared_views.build_execution_views(self.view_draws);
         backend.execute_multi_view_frame(gpu, scene, &mut views, true)
     }

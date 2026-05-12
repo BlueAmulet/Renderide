@@ -130,16 +130,16 @@ pub trait GraphFrameResources: Send + Sync {
     /// Uniform parameters for the active skybox/reflection-probe specular source.
     fn skybox_specular_uniform_params(&self) -> SkyboxSpecularUniformParams;
 
-    /// Whether visible mesh-deform filtering has proven there is no work this frame.
+    /// Whether visible mesh-deform filtering has proven there is no work for this submission.
     fn visible_mesh_deform_filter_is_empty(&self) -> bool;
 
-    /// Whether mesh deform has already recorded work for this tick.
-    fn mesh_deform_dispatched_this_tick(&self) -> bool;
+    /// Whether mesh deform has already recorded work for this graph submission.
+    fn mesh_deform_dispatched_this_submission(&self) -> bool;
 
-    /// Marks mesh deform work as recorded for this tick.
-    fn set_mesh_deform_dispatched_this_tick(&self);
+    /// Marks mesh deform work as recorded for this graph submission.
+    fn set_mesh_deform_dispatched_this_submission(&self);
 
-    /// Cloned visible mesh-deform filter for frame-global deform collection.
+    /// Cloned visible mesh-deform filter for this submission's frame-global deform collection.
     fn visible_mesh_deform_keys_snapshot(&self) -> Option<HashSet<SkinCacheKey>>;
 
     /// Ensures per-view frame bind resources are resident.

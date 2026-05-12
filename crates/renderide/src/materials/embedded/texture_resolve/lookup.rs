@@ -54,8 +54,10 @@ pub(crate) enum ResolvedTextureBinding {
 pub(crate) enum DefaultTextureColor {
     /// Use the default opaque white texture.
     White,
-    /// Use the default transparent black texture.
+    /// Use the default opaque black texture.
     Black,
+    /// Use the default flat tangent-space normal texture `(0.5, 0.5, 1.0)`.
+    FlatNormal,
 }
 
 impl ResolvedTextureBinding {
@@ -140,11 +142,21 @@ pub(crate) fn should_fallback_to_primary_texture(host_name: &str) -> bool {
 }
 
 /// Returns the default 2D placeholder color for a reflected host texture name.
+///
+/// Slot routing follows Unity's `Properties` block conventions for the corresponding shader
+/// asset: metallic and packed-normal channels default to black (no contribution), tangent-space
+/// normal maps default to a flat normal, and every other slot defaults to white so the material
+/// uniform multiplier (`_Color`, `_EmissionColor`, ...) dominates an unset texture.
 pub(crate) fn default_2d_texture_color_for_host(host_name: &str) -> DefaultTextureColor {
     let host_name = shader_writer_unescaped_property_name(host_name);
     match host_name {
         "_MetallicMap" | "_MetallicMap1" | "_MetallicMap2" | "_MetallicMap3"
-        | "_MetallicGloss01" | "_MetallicGloss23" => DefaultTextureColor::Black,
+        | "_MetallicGloss01" | "_MetallicGloss23" | "_PackedNormalMap01" | "_PackedNormalMap23" => {
+            DefaultTextureColor::Black
+        }
+        "_BumpMap" | "_NormalMap" | "_NormalMap0" | "_NormalMap1" | "_DetailNormalMap" => {
+            DefaultTextureColor::FlatNormal
+        }
         _ => DefaultTextureColor::White,
     }
 }
@@ -206,7 +218,7 @@ mod tests {
 
     use hashbrown::HashMap;
 
-    use crate::materials::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
+    use crate::materials::embedded::layout::StemEmbeddedPropertyIds;
     use crate::materials::host_data::PropertyIdRegistry;
 
     fn lookup(material_id: i32) -> MaterialPropertyLookupIds {
@@ -261,12 +273,8 @@ mod tests {
                 requires_intersection_pass: false,
             },
             StemEmbeddedPropertyIds {
-                shared: Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
                 uniform_field_ids: HashMap::new(),
                 texture_binding_property_ids,
-                keyword_field_probe_ids: HashMap::new(),
-                ui_unlit_alpha_clip_default_on: false,
-                procedural_skybox_defaults: false,
             },
             registry,
         )
@@ -367,8 +375,51 @@ mod tests {
     }
 
     #[test]
+    fn packed_normal_maps_use_black_default_texture() {
+        // PBSColorSplat ships `_PackedNormalMap01/23 = "black" {}`: the encoding packs derivative
+        // deltas around zero, so a black texel is the no-op default and a flat-normal value would
+        // bias the surface.
+        for host_name in [
+            "_PackedNormalMap01",
+            "_PackedNormalMap23",
+            "_PackedNormalMap01X_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ4GSZLYMU5DU5DPN5XDEX",
+        ] {
+            assert_eq!(
+                default_2d_texture_color_for_host(host_name),
+                DefaultTextureColor::Black,
+                "{host_name} should bind the black placeholder"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_map_slots_use_flat_normal_default_texture() {
+        for host_name in [
+            "_BumpMap",
+            "_NormalMap",
+            "_NormalMap0",
+            "_NormalMap1",
+            "_DetailNormalMap",
+            "_BumpMapX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ4GSZLYMU5DU5DPN5XDEX",
+        ] {
+            assert_eq!(
+                default_2d_texture_color_for_host(host_name),
+                DefaultTextureColor::FlatNormal,
+                "{host_name} should bind the flat-normal placeholder"
+            );
+        }
+    }
+
+    #[test]
     fn standard_metallic_gloss_map_keeps_white_default_texture() {
-        for host_name in ["_MetallicGlossMap", "_OcclusionMap", "_SpecGlossMap"] {
+        for host_name in [
+            "_MetallicGlossMap",
+            "_OcclusionMap",
+            "_SpecGlossMap",
+            "_EmissionMap",
+            "_MainTex",
+            "_Tex",
+        ] {
             assert_eq!(
                 default_2d_texture_color_for_host(host_name),
                 DefaultTextureColor::White,

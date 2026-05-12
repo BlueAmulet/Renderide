@@ -3,16 +3,17 @@
 //!
 //! The renderer pipeline operates entirely in linear color space, so this port implements
 //! the linear branch of the original shader only; the gamma-space branch and
-//! `SKYBOX_COLOR_IN_TARGET_COLOR_SPACE` short-circuit are intentionally omitted. Sun-disk
-//! mode is selected at runtime via the `_SUNDISK_*` keyword floats, mirroring the host's
-//! material keyword routing.
-
+//! `SKYBOX_COLOR_IN_TARGET_COLOR_SPACE` short-circuit are intentionally omitted.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes ProceduralSky's
+//! shader-specific keyword bits locally. `UNITY_COLORSPACE_GAMMA` is reserved in the bit
+//! table but never consulted because the renderer is linear-only.
 
 #import renderide::frame::globals as rg
 #import renderide::draw::per_draw as pd
 #import renderide::skybox::procedural as ps
 #import renderide::mesh::vertex as mv
-#import renderide::core::uv as uvu
+#import renderide::material::variant_bits as vb
 
 struct ProceduralSkyboxMaterial {
     _SkyTint: vec4<f32>,
@@ -22,12 +23,27 @@ struct ProceduralSkyboxMaterial {
     _Exposure: f32,
     _SunSize: f32,
     _AtmosphereThickness: f32,
-    _SUNDISK_NONE: f32,
-    _SUNDISK_SIMPLE: f32,
-    _SUNDISK_HIGH_QUALITY: f32,
+    _RenderideVariantBits: u32,
 }
 
+const PROCSKY_KW_UNITY_COLORSPACE_GAMMA: u32 = 1u << 0u;
+const PROCSKY_KW_SUNDISK_HIGH_QUALITY: u32 = 1u << 1u;
+const PROCSKY_KW_SUNDISK_NONE: u32 = 1u << 2u;
+const PROCSKY_KW_SUNDISK_SIMPLE: u32 = 1u << 3u;
+
 @group(1) @binding(0) var<uniform> mat: ProceduralSkyboxMaterial;
+
+fn procsky_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_SUNDISK_NONE() -> bool {
+    return procsky_kw(PROCSKY_KW_SUNDISK_NONE);
+}
+
+fn kw_SUNDISK_HIGH_QUALITY() -> bool {
+    return procsky_kw(PROCSKY_KW_SUNDISK_HIGH_QUALITY);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -73,10 +89,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 fn procedural_sun_disk_mode() -> f32 {
-    if (uvu::kw_enabled(mat._SUNDISK_NONE)) {
+    if (kw_SUNDISK_NONE()) {
         return 0.0;
     }
-    if (uvu::kw_enabled(mat._SUNDISK_HIGH_QUALITY)) {
+    if (kw_SUNDISK_HIGH_QUALITY()) {
         return 2.0;
     }
     return 1.0;

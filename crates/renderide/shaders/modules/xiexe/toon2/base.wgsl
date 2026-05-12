@@ -67,10 +67,6 @@ struct XiexeToon2Material {
     _MainTex_ST: vec4<f32>,
     /// `_BumpMap` UV scale/offset.
     _BumpMap_ST: vec4<f32>,
-    /// `_DetailNormalMap` UV scale/offset.
-    _DetailNormalMap_ST: vec4<f32>,
-    /// `_DetailMask` UV scale/offset.
-    _DetailMask_ST: vec4<f32>,
     /// `_MetallicGlossMap` UV scale/offset.
     _MetallicGlossMap_ST: vec4<f32>,
     /// `_EmissionMap` UV scale/offset.
@@ -83,8 +79,6 @@ struct XiexeToon2Material {
     _CutoutMask_ST: vec4<f32>,
     /// `_ReflectivityMask` UV scale/offset.
     _ReflectivityMask_ST: vec4<f32>,
-    /// `_SpecularMap` UV scale/offset.
-    _SpecularMap_ST: vec4<f32>,
 
     /// Alpha cutoff threshold for the cutout / masked-coverage paths.
     _Cutoff: f32,
@@ -92,32 +86,12 @@ struct XiexeToon2Material {
     _Saturation: f32,
     /// Tangent-space normal-map intensity.
     _BumpScale: f32,
-    /// Tangent-space detail-normal intensity.
-    _DetailNormalMapScale: f32,
     /// Metallic factor multiplied into `_MetallicGlossMap.r`.
     _Metallic: f32,
     /// Smoothness factor multiplied into `_MetallicGlossMap.a`.
     _Glossiness: f32,
     /// Reflectivity weight applied to indirect specular.
     _Reflectivity: f32,
-    /// Clear-coat layer strength multiplier.
-    _ClearcoatStrength: f32,
-    /// Clear-coat smoothness.
-    _ClearcoatSmoothness: f32,
-    /// Reflection mode: 0 = PBR, 1 = baked cubemap, 2 = matcap, 3 = off.
-    _ReflectionMode: f32,
-    /// Reflection blend mode: 0 = additive, 1 = multiplicative, 2 = subtractive.
-    _ReflectionBlendMode: f32,
-    /// Host storage-orientation flag for `_BakedCubemap`.
-    _BakedCubemap_StorageVInverted: f32,
-    /// Clear-coat enable flag.
-    _ClearCoat: f32,
-    /// Emission light-scaling flag (`0 = scale with light`, `1 = keep emission unscaled`).
-    _ScaleWithLight: f32,
-    /// Lerp factor that blends emission toward `emission * albedo`.
-    _EmissionToDiffuse: f32,
-    /// Sensitivity coefficient for the `_ScaleWithLight` mode.
-    _ScaleWithLightSensitivity: f32,
 
     /// Lerp factor that tints rim by albedo.
     _RimAlbedoTint: f32,
@@ -140,14 +114,6 @@ struct XiexeToon2Material {
     _SpecularArea: f32,
     /// Lerp factor that tints specular highlight by albedo.
     _SpecularAlbedoTint: f32,
-    /// Spec mode selector (passthrough; only the GGX branch is implemented).
-    _SpecMode: f32,
-    /// Spec style selector (passthrough).
-    _SpecularStyle: f32,
-    /// Anisotropic alpha along tangent (reserved).
-    _AnisotropicAX: f32,
-    /// Anisotropic alpha along bitangent (reserved).
-    _AnisotropicAY: f32,
 
     /// Sharpens the shadow attenuation transition. `0` = smooth, `1` = hard step.
     _ShadowSharpness: f32,
@@ -185,30 +151,16 @@ struct XiexeToon2Material {
     _FadeDither: f32,
     /// Distance at which the fade-dither starts to take effect.
     _FadeDitherDistance: f32,
-    /// Reserved halftone dot-size control kept for material property parity.
-    _HalftoneDotSize: f32,
-    /// Reserved halftone dot-amount control kept for material property parity.
-    _HalftoneDotAmount: f32,
-    /// Reserved halftone line-amount control kept for material property parity.
-    _HalftoneLineAmount: f32,
 
     /// Enables vertex-color-tinted albedo (Unity `VERTEX_COLOR_ALBEDO`).
     _VertexColorAlbedo: f32,
-    /// Tiling-mode selector (passthrough; merged-UV path is not implemented).
-    _TilingMode: f32,
 
     /// UV set selector (0 = UV0, 1 = UV1) for albedo.
     _UVSetAlbedo: f32,
     /// UV set selector for the base normal map.
     _UVSetNormal: f32,
-    /// UV set selector for the detail normal map.
-    _UVSetDetNormal: f32,
-    /// UV set selector for the detail mask.
-    _UVSetDetMask: f32,
     /// UV set selector for the metallic/gloss map.
     _UVSetMetallic: f32,
-    /// UV set selector for the specular map.
-    _UVSetSpecular: f32,
     /// UV set selector for the reflectivity mask.
     _UVSetReflectivity: f32,
     /// UV set selector for the thickness map.
@@ -218,42 +170,10 @@ struct XiexeToon2Material {
     /// UV set selector for the emission map.
     _UVSetEmission: f32,
 
-    /// Unity `_NORMALMAP` keyword flag (1 = enabled).
-    _NORMALMAP: f32,
-    /// Unity `NORMAL_MAP` keyword alias.
-    NORMAL_MAP: f32,
-    /// Unity `_EMISSION` keyword flag.
-    _EMISSION: f32,
-    /// Unity `EMISSION_MAP` keyword alias.
-    EMISSION_MAP: f32,
-    /// Unity `_METALLICGLOSSMAP` keyword flag.
-    _METALLICGLOSSMAP: f32,
-    /// Unity `METALLICGLOSS_MAP` keyword alias.
-    METALLICGLOSS_MAP: f32,
-    /// Unity `OCCLUSION_METALLIC` keyword (enables both occlusion and metallic-gloss maps).
-    OCCLUSION_METALLIC: f32,
-    /// Unity `_OCCLUSION` keyword flag.
-    _OCCLUSION: f32,
-    /// Unity `OCCLUSION_MAP` keyword alias.
-    OCCLUSION_MAP: f32,
-    /// Unity `RAMPMASK_OUTLINEMASK_THICKNESS` keyword (enables ramp-mask, outline-mask, and thickness).
-    RAMPMASK_OUTLINEMASK_THICKNESS: f32,
-    /// Unity `RAMP_MASK` keyword flag.
-    RAMP_MASK: f32,
-    /// Unity `OUTLINE_MASK` keyword flag.
-    OUTLINE_MASK: f32,
-    /// Unity `THICKNESS_MAP` keyword flag.
-    THICKNESS_MAP: f32,
-    /// Unity `MATCAP` keyword flag.
-    MATCAP: f32,
-    /// Unity `VERTEX_COLOR_ALBEDO` keyword flag.
-    VERTEX_COLOR_ALBEDO: f32,
-    /// Xiexe `Cutout` keyword flag.
-    Cutout: f32,
-    /// Xiexe `AlphaBlend` keyword flag.
-    AlphaBlend: f32,
-    /// Xiexe `Transparent` keyword flag.
-    Transparent: f32,
+    /// Renderer-reserved variant bitfield decoded by `renderide::xiexe::toon2::variant_bits`.
+    /// Each bit corresponds to one entry of the alphabetically-sorted `UniqueKeywords` list
+    /// built from the Unity shader's `#pragma multi_compile` groups.
+    _RenderideVariantBits: u32,
 }
 
 /// Per-material uniform binding consumed by every xiexe-toon submodule.
@@ -302,28 +222,10 @@ struct XiexeToon2Material {
 @group(1) @binding(21) var _Matcap: texture_2d<f32>;
 /// Matcap sampler.
 @group(1) @binding(22) var _Matcap_sampler: sampler;
-/// Detail normal map (additive over `_BumpMap`).
-@group(1) @binding(23) var _DetailNormalMap: texture_2d<f32>;
-/// Detail normal sampler.
-@group(1) @binding(24) var _DetailNormalMap_sampler: sampler;
-/// Detail mask gating detail-normal contribution.
-@group(1) @binding(25) var _DetailMask: texture_2d<f32>;
-/// Detail-mask sampler.
-@group(1) @binding(26) var _DetailMask_sampler: sampler;
 /// Reflectivity mask gating indirect specular contribution.
-@group(1) @binding(27) var _ReflectivityMask: texture_2d<f32>;
+@group(1) @binding(23) var _ReflectivityMask: texture_2d<f32>;
 /// Reflectivity-mask sampler.
-@group(1) @binding(28) var _ReflectivityMask_sampler: sampler;
-/// Specular-mask map: `.r` highlight strength, `.g` albedo-tint, `.b` smoothness scale.
-@group(1) @binding(29) var _SpecularMap: texture_2d<f32>;
-/// Specular-map sampler.
-@group(1) @binding(30) var _SpecularMap_sampler: sampler;
-/// Per-material baked cubemap sampled by `_ReflectionMode == 1`. The host uploads the
-/// Unity `_BakedCubemap` (CUBE) property; an unbound material falls back to the resident
-/// black-cube default in the texture pool.
-@group(1) @binding(31) var _BakedCubemap: texture_cube<f32>;
-/// Baked-cubemap sampler.
-@group(1) @binding(32) var _BakedCubemap_sampler: sampler;
+@group(1) @binding(24) var _ReflectivityMask_sampler: sampler;
 
 /// Vertex-to-fragment payload carried by every xiexe-toon variant. The two-UV-set layout
 /// mirrors Unity `VertexOutput`/`g2f` so material-property UV selectors keep working.
@@ -374,24 +276,18 @@ struct SurfaceData {
     roughness: f32,
     /// Raw smoothness (for matcap LOD selection).
     smoothness: f32,
-    /// Effective clear-coat strength after `_ClearcoatStrength * metallicGlossMap.b`.
-    clearcoat_strength: f32,
-    /// Effective clear-coat smoothness after `_ClearcoatSmoothness * metallicGlossMap.g`.
-    clearcoat_smoothness: f32,
     /// Scalar reflectivity control used for the dielectric Fresnel floor.
     reflectivity: f32,
     /// `_ReflectivityMask.r`, used when blending indirect specular into the surface.
     reflectivity_mask: f32,
     /// AO color tint, lerped from `_OcclusionColor` to white by AO sample.
     occlusion: vec3<f32>,
-    /// Base emission sample before `_EmissionToDiffuse` / `_ScaleWithLight` are applied.
+    /// Base emission sample.
     emission: vec3<f32>,
     /// Ramp-mask row used as the V coordinate when sampling `_Ramp`.
     ramp_mask: f32,
     /// Subsurface thickness sample.
     thickness: f32,
-    /// Specular-map sample (channels documented on the binding).
-    specular_mask: vec4<f32>,
 }
 
 /// One resolved punctual / directional light at a surface point.
@@ -406,26 +302,12 @@ struct LightSample {
     is_directional: bool,
 }
 
-/// Returns true when a Unity-style keyword flag is set (`> 0.5` is the canonical test).
-fn kw(v: f32) -> bool {
+/// Returns true when a Unity material *property* (Enum or ToggleUI, not a multi_compile
+/// keyword) reads "on". Reserved for scalar property flags such as `_OutlineAlbedoTint` and
+/// `_OutlineLighting`; shader keywords decode through
+/// [`renderide::xiexe::toon2::variant_bits`] instead.
+fn prop_flag(v: f32) -> bool {
     return v > 0.5;
-}
-
-/// Resolves material-authored alpha keywords for generic Xiexe stems.
-fn resolved_alpha_mode(static_alpha_mode: u32) -> u32 {
-    if (static_alpha_mode != ALPHA_OPAQUE) {
-        return static_alpha_mode;
-    }
-    if (kw(mat.Cutout)) {
-        return ALPHA_CUTOUT;
-    }
-    if (kw(mat.Transparent)) {
-        return ALPHA_TRANSPARENT;
-    }
-    if (kw(mat.AlphaBlend)) {
-        return ALPHA_FADE;
-    }
-    return ALPHA_OPAQUE;
 }
 
 /// `clamp(v, 0, 1)` shortcut. Hand-rolled so call sites don't drag in a `saturate` HLSL
@@ -460,83 +342,6 @@ fn grayscale(v: vec3<f32>) -> f32 {
 fn maybe_saturate_color(c: vec3<f32>) -> vec3<f32> {
     let g = vec3<f32>(grayscale(c));
     return mix(g, c, mat._Saturation);
-}
-
-/// True when either the new-style `_NORMALMAP` flag or the alias keyword is set.
-fn normal_map_enabled() -> bool {
-    return kw(mat._NORMALMAP) || kw(mat.NORMAL_MAP);
-}
-
-/// True when any emission keyword is set or `_EmissionColor` is non-black.
-fn emission_map_enabled() -> bool {
-    return kw(mat._EMISSION) || kw(mat.EMISSION_MAP) ||
-        dot(mat._EmissionColor.rgb, mat._EmissionColor.rgb) > 1e-8;
-}
-
-/// True when any metallic / occlusion-metallic keyword enables the metallic-gloss map.
-fn metallic_map_enabled() -> bool {
-    return kw(mat._METALLICGLOSSMAP) || kw(mat.METALLICGLOSS_MAP) ||
-        kw(mat.OCCLUSION_METALLIC);
-}
-
-/// True when any occlusion keyword is set.
-fn occlusion_enabled() -> bool {
-    return kw(mat._OCCLUSION) || kw(mat.OCCLUSION_MAP) || kw(mat.OCCLUSION_METALLIC);
-}
-
-/// True when the ramp-selection mask is enabled by either keyword.
-fn ramp_mask_enabled() -> bool {
-    return kw(mat.RAMP_MASK) || kw(mat.RAMPMASK_OUTLINEMASK_THICKNESS);
-}
-
-/// True when the thickness map is enabled by either keyword.
-fn thickness_enabled() -> bool {
-    return kw(mat.THICKNESS_MAP) || kw(mat.RAMPMASK_OUTLINEMASK_THICKNESS);
-}
-
-/// True when matcap mode is selected via the `MATCAP` keyword or `_ReflectionMode == 2`.
-///
-/// The keyword path is kept because Resonite's `XiexeToonMaterial` drives matcap through a
-/// texture-presence keyword even when it does not populate `_ReflectionMode` explicitly.
-fn matcap_enabled() -> bool {
-    return kw(mat.MATCAP) || abs(mat._ReflectionMode - 2.0) < 0.5;
-}
-
-/// True when the reflection mode explicitly disables indirect specular and no matcap keyword is set.
-fn reflection_disabled() -> bool {
-    return !kw(mat.MATCAP) && abs(mat._ReflectionMode - 3.0) < 0.5;
-}
-
-/// True when the shader should use the skybox/PBR reflection branch (`_ReflectionMode == 0`).
-///
-/// Mode `1` ("baked cubemap") samples `_BakedCubemap` directly via
-/// `lighting::indirect_reflection_branch` and is therefore excluded here.
-fn reflection_uses_pbr() -> bool {
-    return !reflection_disabled() && !matcap_enabled() && !baked_cubemap_enabled();
-}
-
-/// True when the reflection mode selects the per-material baked-cubemap branch.
-fn baked_cubemap_enabled() -> bool {
-    return !kw(mat.MATCAP) && abs(mat._ReflectionMode - 1.0) < 0.5;
-}
-
-/// True when the legacy clear-coat controls should add the secondary lobe.
-fn clearcoat_enabled() -> bool {
-    return kw(mat._ClearCoat) && mat._ClearcoatStrength > 1e-4 && mat._ClearcoatSmoothness > 1e-4;
-}
-
-/// True when emission should be dimmed by scene brightness.
-///
-/// Legacy Resonite-authored XSToon2 materials never populated `_ScaleWithLight`; keeping the
-/// sensitivity check avoids unexpectedly changing those materials while still honoring imported
-/// content that explicitly enables the feature.
-fn scale_with_light_enabled() -> bool {
-    return mat._ScaleWithLight < 0.5 && mat._ScaleWithLightSensitivity > 1e-4;
-}
-
-/// True when vertex-color albedo tinting is enabled via either keyword spelling.
-fn vertex_color_albedo_enabled() -> bool {
-    return kw(mat._VertexColorAlbedo) || kw(mat.VERTEX_COLOR_ALBEDO);
 }
 
 /// Selects between the primary and secondary UV sets based on a Unity `_UVSetX` scalar

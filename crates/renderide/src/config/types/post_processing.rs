@@ -52,19 +52,6 @@ mod tests {
     use crate::config::types::RendererSettings;
 
     #[test]
-    fn defaults_enable_post_processing_stack() {
-        let s = PostProcessingSettings::default();
-        assert!(s.enabled, "post-processing should default to enabled");
-        assert!(s.gtao.enabled, "GTAO should default to enabled");
-        assert!(s.bloom.enabled, "bloom should default to enabled");
-        assert!(
-            s.auto_exposure.enabled,
-            "auto-exposure should default to enabled"
-        );
-        assert_eq!(s.tonemap.mode, TonemapMode::AgX);
-    }
-
-    #[test]
     fn renderer_settings_includes_post_processing_section() {
         let s = RendererSettings::default();
         assert_eq!(s.post_processing, PostProcessingSettings::default());

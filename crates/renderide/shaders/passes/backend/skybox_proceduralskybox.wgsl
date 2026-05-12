@@ -1,9 +1,16 @@
 //! Fullscreen ProceduralSkybox sky draw.
+//!
+//! Material struct mirrors `materials/proceduralskybox.wgsl` exactly so the reflected
+//! `@group(1) @binding(0)` layout (which is taken from the material-side shader) matches
+//! this pass-side shader's bind requirement. Froox variant bits populate
+//! `_RenderideVariantBits`; this shader decodes ProceduralSky's shader-specific keyword
+//! bits locally. `UNITY_COLORSPACE_GAMMA` is reserved in the bit table but never consulted
+//! because the renderer is linear-only.
 
 #import renderide::frame::globals as rg
 #import renderide::skybox::procedural as ps
 #import renderide::skybox::common as skybox
-#import renderide::core::uv as uvu
+#import renderide::material::variant_bits as vb
 
 struct ProceduralSkyboxMaterial {
     _SkyTint: vec4<f32>,
@@ -13,13 +20,28 @@ struct ProceduralSkyboxMaterial {
     _Exposure: f32,
     _SunSize: f32,
     _AtmosphereThickness: f32,
-    _SUNDISK_NONE: f32,
-    _SUNDISK_SIMPLE: f32,
-    _SUNDISK_HIGH_QUALITY: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PROCSKY_KW_UNITY_COLORSPACE_GAMMA: u32 = 1u << 0u;
+const PROCSKY_KW_SUNDISK_HIGH_QUALITY: u32 = 1u << 1u;
+const PROCSKY_KW_SUNDISK_NONE: u32 = 1u << 2u;
+const PROCSKY_KW_SUNDISK_SIMPLE: u32 = 1u << 3u;
 
 @group(1) @binding(0) var<uniform> mat: ProceduralSkyboxMaterial;
 @group(2) @binding(0) var<uniform> view: skybox::SkyboxView;
+
+fn procsky_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_SUNDISK_NONE() -> bool {
+    return procsky_kw(PROCSKY_KW_SUNDISK_NONE);
+}
+
+fn kw_SUNDISK_HIGH_QUALITY() -> bool {
+    return procsky_kw(PROCSKY_KW_SUNDISK_HIGH_QUALITY);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -42,10 +64,10 @@ fn procedural_color(ray: vec3<f32>) -> vec4<f32> {
 }
 
 fn procedural_sun_disk_mode() -> f32 {
-    if (uvu::kw_enabled(mat._SUNDISK_NONE)) {
+    if (kw_SUNDISK_NONE()) {
         return 0.0;
     }
-    if (uvu::kw_enabled(mat._SUNDISK_HIGH_QUALITY)) {
+    if (kw_SUNDISK_HIGH_QUALITY()) {
         return 2.0;
     }
     return 1.0;

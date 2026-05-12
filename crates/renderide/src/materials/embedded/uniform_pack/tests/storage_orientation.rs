@@ -1,7 +1,6 @@
 //! Texture storage-orientation and sampler metadata uniform tests.
 
 use super::super::*;
-use std::sync::Arc;
 
 use hashbrown::HashMap;
 
@@ -10,7 +9,7 @@ use crate::gpu_pools::{
     CubemapPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
 };
 use crate::materials::ReflectedMaterialUniformBlock;
-use crate::materials::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
+use crate::materials::embedded::layout::StemEmbeddedPropertyIds;
 use crate::materials::embedded::texture_pools::EmbeddedTexturePools;
 use crate::materials::host_data::PropertyIdRegistry;
 
@@ -79,12 +78,7 @@ fn reflected_with_texture_and_fields(
         uses_scene_color_snapshot: false,
         requires_intersection_pass: false,
     };
-    let ids = StemEmbeddedPropertyIds::build(
-        "test_default",
-        Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
-        &registry,
-        &reflected,
-    );
+    let ids = StemEmbeddedPropertyIds::build(&registry, &reflected);
     (reflected, ids, registry)
 }
 

@@ -48,11 +48,11 @@ pub struct FrameResourceManager {
     pub(super) resolved_flatten_scratch: Vec<ResolvedLight>,
     /// Reused each view to collect active render spaces that should contribute lights.
     pub(super) light_space_ids_scratch: Vec<RenderSpaceId>,
-    /// When true, [`crate::passes::MeshDeformPass`] already dispatched this tick.
+    /// When true, [`crate::passes::MeshDeformPass`] already dispatched for the current graph
+    /// submission.
     ///
-    /// In VR, the HMD graph runs mesh deform first; secondary cameras skip it via this flag.
-    /// Reset with `reset_light_prep_for_tick`.
-    pub(super) mesh_deform_dispatched_this_tick: AtomicBool,
+    /// Reset when a new submitted draw packet installs its visible deform set.
+    pub(super) mesh_deform_dispatched_this_submission: AtomicBool,
     /// Optional visible deform filter derived from prefetched per-view draw lists.
     pub(super) visible_mesh_deform_keys: Mutex<Option<HashSet<SkinCacheKey>>>,
     /// Reused per-view scratch for per-draw VP/pack before
@@ -88,7 +88,7 @@ impl FrameResourceManager {
             signed_scene_color_required: false,
             resolved_flatten_scratch: Vec::new(),
             light_space_ids_scratch: Vec::new(),
-            mesh_deform_dispatched_this_tick: AtomicBool::new(false),
+            mesh_deform_dispatched_this_submission: AtomicBool::new(false),
             visible_mesh_deform_keys: Mutex::new(None),
             per_view_per_draw_scratch: PerViewResourceMap::new(),
             lights_overflow_warned: false,

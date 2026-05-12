@@ -3,11 +3,8 @@
 //! Layouts and uniform packing come from [`crate::materials::reflect_raster_material_wgsl`] (naga).
 //! WGSL identifiers in `@group(1)` match Unity [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html)
 //! names; [`crate::materials::host_data::PropertyIdRegistry`] resolves them to batch property ids.
-//!
-//! **Text/UI controls (`_TextMode`, `_RectClip`, `_OVERLAY`):** packing uses canonical
-//! `set_float` values when present. Missing `_TextMode` is inferred from `_FontAtlas` texture
-//! profile, missing `_RectClip` is inferred from UI stencil content state, and remaining
-//! UI-only controls default to zero instead of keyword-style alias inference.
+//! Multi-compile keyword state is shipped as a single `_RenderideVariantBits: u32` uniform field
+//! and decoded by WGSL via `renderide::material::variant_bits::enabled`.
 
 mod assemble;
 mod cache;
@@ -27,7 +24,7 @@ use parking_lot::Mutex;
 
 use super::bind_kind::TextureBindKind;
 use super::embedded_material_bind_error::EmbeddedMaterialBindError;
-use super::layout::{EmbeddedSharedKeywordIds, StemMaterialLayout};
+use super::layout::StemMaterialLayout;
 use super::texture_pools::EmbeddedTexturePools;
 use super::texture_resolve::default_embedded_sampler;
 use crate::gpu_resource::ShardedLru;
@@ -46,7 +43,10 @@ use uniform::{
     EmbeddedUniformArenaRequest, MaterialUniformArena, MaterialUniformArenaSlotBinding,
     MaterialUniformCacheKey,
 };
-use white_texture::{PlaceholderTexture, create_black, create_white, upload_black, upload_white};
+use white_texture::{
+    PlaceholderTexture, create_black, create_flat_normal, create_white, upload_black,
+    upload_flat_normal, upload_white,
+};
 
 use resolve::EmbeddedBindInputResolution;
 
@@ -120,11 +120,11 @@ pub struct EmbeddedMaterialBindResources {
     device: Arc<wgpu::Device>,
     white_2d: PlaceholderTexture,
     black_2d: PlaceholderTexture,
+    flat_normal_2d: PlaceholderTexture,
     white_3d: PlaceholderTexture,
     white_cube: PlaceholderTexture,
     default_sampler: Arc<wgpu::Sampler>,
     property_registry: Arc<PropertyIdRegistry>,
-    shared_keyword_ids: Arc<EmbeddedSharedKeywordIds>,
     stem_cache: Mutex<HashMap<String, Arc<StemMaterialLayout>>>,
     /// Sharded dynamic uniform arenas for `@group(1) @binding(0)` material constants.
     ///
@@ -160,23 +160,21 @@ impl EmbeddedMaterialBindResources {
     ) -> Result<Self, EmbeddedMaterialBindError> {
         let white_2d = create_white(device.as_ref(), TextureBindKind::Tex2D);
         let black_2d = create_black(device.as_ref(), TextureBindKind::Tex2D);
+        let flat_normal_2d = create_flat_normal(device.as_ref(), TextureBindKind::Tex2D);
         let white_3d = create_white(device.as_ref(), TextureBindKind::Tex3D);
         let white_cube = create_white(device.as_ref(), TextureBindKind::Cube);
 
         let default_sampler = Arc::new(default_embedded_sampler(device.as_ref()));
 
-        let shared_keyword_ids =
-            Arc::new(EmbeddedSharedKeywordIds::new(property_registry.as_ref()));
-
         Ok(Self {
             device: device.clone(),
             white_2d,
             black_2d,
+            flat_normal_2d,
             white_3d,
             white_cube,
             default_sampler,
             property_registry,
-            shared_keyword_ids,
             stem_cache: Mutex::new(HashMap::new()),
             uniform_arena_shards: (0..EMBEDDED_CACHE_SHARDS)
                 .map(|_| Mutex::new(MaterialUniformArena::new(device.clone(), limits.clone())))
@@ -192,6 +190,7 @@ impl EmbeddedMaterialBindResources {
     pub fn write_default_textures(&self, queue: &wgpu::Queue) {
         upload_white(queue, &self.white_2d, TextureBindKind::Tex2D);
         upload_black(queue, &self.black_2d, TextureBindKind::Tex2D);
+        upload_flat_normal(queue, &self.flat_normal_2d, TextureBindKind::Tex2D);
         upload_white(queue, &self.white_3d, TextureBindKind::Tex3D);
         upload_white(queue, &self.white_cube, TextureBindKind::Cube);
     }
@@ -257,33 +256,12 @@ impl EmbeddedMaterialBindResources {
         }
     }
 
-    /// Returns or builds a `@group(1)` bind group for the composed embedded `stem` (e.g. `unlit_default`).
-    #[inline]
-    pub(crate) fn embedded_material_bind_group(
-        &self,
-        stem: &str,
-        uploads: GraphUploadSink<'_>,
-        store: &MaterialPropertyStore,
-        pools: &EmbeddedTexturePools<'_>,
-        lookup: MaterialPropertyLookupIds,
-        offscreen_write_render_texture_asset_id: Option<i32>,
-    ) -> Result<EmbeddedMaterialBindGroup, EmbeddedMaterialBindError> {
-        self.embedded_material_bind_group_with_cache_key(
-            EmbeddedMaterialBindShader {
-                stem,
-                shader_variant_bits: None,
-            },
-            uploads,
-            store,
-            pools,
-            lookup,
-            offscreen_write_render_texture_asset_id,
-        )
-        .map(|(_, g)| g)
-    }
-
-    /// Same as [`Self::embedded_material_bind_group`], plus the cache key for diagnostics and
-    /// possible caller-side bind deduplication.
+    /// Returns or builds a `@group(1)` bind group for the composed embedded `stem`. Callers
+    /// must thread the shader-specific Froox variant bitmask through
+    /// [`EmbeddedMaterialBindShader::shader_variant_bits`]: hard-coding `None` zeroes
+    /// `_RenderideVariantBits` in the packed uniform and breaks every keyword-driven
+    /// branch in the shader (this is how the Projection360 skybox-pass black-render
+    /// regression reached production).
     pub(crate) fn embedded_material_bind_group_with_cache_key(
         &self,
         shader: EmbeddedMaterialBindShader<'_>,

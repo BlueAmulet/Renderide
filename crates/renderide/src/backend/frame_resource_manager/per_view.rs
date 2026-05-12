@@ -1,5 +1,5 @@
-//! Per-view frame/per-draw lifecycle, scene snapshot copies, cluster sync, and mesh-deform tick
-//! flags for [`FrameResourceManager`].
+//! Per-view frame/per-draw lifecycle, scene snapshot copies, cluster sync, and mesh-deform
+//! submission flags for [`FrameResourceManager`].
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -33,30 +33,37 @@ impl FrameResourceManager {
     /// The flag store uses [`Ordering::Release`] so a worker that observes the cleared state on
     /// the next tick is guaranteed to see the prior tick's GPU writes that produced the work.
     pub fn reset_light_prep_for_tick(&self) {
-        self.mesh_deform_dispatched_this_tick
+        self.mesh_deform_dispatched_this_submission
             .store(false, Ordering::Release);
         *self.visible_mesh_deform_keys.lock() = None;
     }
 
-    /// Whether [`crate::passes::MeshDeformPass`] already dispatched this tick.
+    /// Starts a graph submission with the visible deformed renderers gathered during draw prep.
+    ///
+    /// A tick can record multiple graph submissions: camera readbacks, reflection probes, HMD
+    /// frames, and the desktop mirror/main view. Each submission has its own draw list, so the
+    /// mesh-deform coalescing flag must reset here instead of only at the wall-clock tick
+    /// boundary.
+    pub fn begin_mesh_deform_submission(&mut self, keys: HashSet<SkinCacheKey>) {
+        *self.visible_mesh_deform_keys.get_mut() = Some(keys);
+        self.mesh_deform_dispatched_this_submission
+            .store(false, Ordering::Release);
+    }
+
+    /// Whether [`crate::passes::MeshDeformPass`] already dispatched for this graph submission.
     ///
     /// Acquire-load pairs with the [`Ordering::Release`] store in
-    /// [`Self::set_mesh_deform_dispatched_this_tick`] so a multi-view worker that sees `true` is
-    /// guaranteed to see the prior dispatch's encoder/queue writes.
-    pub fn mesh_deform_dispatched_this_tick(&self) -> bool {
-        self.mesh_deform_dispatched_this_tick
+    /// [`Self::set_mesh_deform_dispatched_this_submission`] so a multi-view worker that sees
+    /// `true` is guaranteed to see the prior dispatch's encoder/queue writes.
+    pub fn mesh_deform_dispatched_this_submission(&self) -> bool {
+        self.mesh_deform_dispatched_this_submission
             .load(Ordering::Acquire)
     }
 
-    /// Marks mesh deform as dispatched for this tick.
-    pub fn set_mesh_deform_dispatched_this_tick(&self) {
-        self.mesh_deform_dispatched_this_tick
+    /// Marks mesh deform as dispatched for this graph submission.
+    pub fn set_mesh_deform_dispatched_this_submission(&self) {
+        self.mesh_deform_dispatched_this_submission
             .store(true, Ordering::Release);
-    }
-
-    /// Replaces the optional visible deform filter for this graph frame.
-    pub fn set_visible_mesh_deform_keys(&mut self, keys: HashSet<SkinCacheKey>) {
-        *self.visible_mesh_deform_keys.get_mut() = Some(keys);
     }
 
     /// Clones the current visible deform filter for lock-free worker iteration.

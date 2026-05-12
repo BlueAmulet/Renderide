@@ -57,8 +57,8 @@ pub fn default_goldens_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("goldens")
 }
 
-/// The historical `goldens/sphere.png` baseline, now exposed under the structured
-/// integration-case API.
+/// Single UV sphere on the renderer's `Null` fallback pipeline; smallest end-to-end smoke
+/// test of IPC, mesh upload, frame loop, and PNG capture.
 ///
 /// Tolerance is intentionally loose: the committed golden was captured on different hardware
 /// and Mesa lavapipe (the typical CI software rasterizer for this suite) shades the
@@ -73,7 +73,7 @@ pub fn unlit_sphere() -> IntegrationCase {
         description:
             "Single UV sphere on the Null fallback pipeline; smallest end-to-end smoke test."
                 .to_string(),
-        golden_path: default_goldens_dir().join("sphere.png"),
+        golden_path: default_goldens_dir().join("unlit_sphere.png"),
         resolution: (256, 256),
         tolerance: Tolerance {
             ssim_min: Some(0.65),
@@ -164,5 +164,30 @@ mod tests {
         let mut deduped = names.clone();
         deduped.dedup();
         assert_eq!(names, deduped, "duplicate case name");
+    }
+
+    #[test]
+    fn golden_filenames_match_case_names() {
+        for case in registry() {
+            let expected = format!("{}.png", case.name);
+            assert_eq!(
+                case.golden_path.file_name().and_then(|name| name.to_str()),
+                Some(expected.as_str()),
+                "{} must use goldens/{expected}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn registered_goldens_exist() {
+        for case in registry() {
+            assert!(
+                case.golden_path.is_file(),
+                "{} golden missing at {}",
+                case.name,
+                case.golden_path.display()
+            );
+        }
     }
 }

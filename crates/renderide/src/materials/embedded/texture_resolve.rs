@@ -13,6 +13,3 @@ pub(crate) use lookup::{
     texture_property_ids_for_binding,
 };
 pub(crate) use sampler::{create_sampler, default_embedded_sampler};
-
-#[cfg(test)]
-pub(crate) use lookup::should_fallback_to_primary_texture;

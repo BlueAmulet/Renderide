@@ -1,10 +1,10 @@
-//! Uniform byte packing for embedded `@group(1)` material blocks (reflection-driven defaults and keywords).
+//! Uniform byte packing for embedded `@group(1)` material blocks (reflection-driven defaults
+//! plus renderer-reserved fields).
 
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
 };
 use crate::materials::{ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind};
-use crate::shared::ColorProfile;
 
 use super::layout::StemEmbeddedPropertyIds;
 use super::texture_pools::EmbeddedTexturePools;
@@ -18,32 +18,13 @@ mod tables;
 
 pub(crate) use crate::color_space::srgb_f32x4_rgb_to_linear as srgb_vec4_rgb_to_linear;
 pub(crate) use color_space::MaterialUniformValueSpaces;
-use helpers::{
-    default_f32_for_field, default_vec4_for_field, first_float_by_pids,
-    shader_writer_unescaped_field_name,
-};
-use tables::{inferred_keyword_float_f32, inferred_shader_variant_bits_u32};
+use helpers::shader_writer_unescaped_field_name;
+use tables::inferred_shader_variant_bits_u32;
 
 /// Suffix convention that opts a uniform field in to host `mipmap_bias` population.
 const LOD_BIAS_SUFFIX: &str = "_LodBias";
 /// Suffix convention that opts a uniform field in to storage V-inversion population.
 const STORAGE_V_INVERTED_SUFFIX: &str = "_StorageVInverted";
-/// Synthetic field mirroring Unity text shader keyword mode selection.
-const TEXT_MODE_FIELD: &str = "_TextMode";
-/// Synthetic field mirroring Unity's `RECTCLIP` shader keyword for UI materials.
-const RECT_CLIP_FIELD: &str = "_RectClip";
-/// Font atlas texture slot used by text materials.
-const FONT_ATLAS_TEXTURE: &str = "_FontAtlas";
-/// Renderer text mode value for MSDF glyph atlases.
-const TEXT_MODE_MSDF: f32 = 0.0;
-/// Renderer text mode value for raster glyph atlases.
-const TEXT_MODE_RASTER: f32 = 1.0;
-/// Unity `CompareFunction.Equal`.
-const UNITY_COMPARE_EQUAL: i32 = 3;
-/// Unity `StencilOp.Keep`.
-const UNITY_STENCIL_OP_KEEP: i32 = 0;
-/// Unity `ColorMask.None`.
-const UNITY_COLOR_MASK_NONE: i32 = 0;
 
 fn write_f32_at(buf: &mut [u8], field: &ReflectedUniformField, v: f32) {
     let off = field.offset as usize;
@@ -115,13 +96,12 @@ pub(crate) struct UniformPackTextureContext<'a> {
 ///
 /// Every value comes from one of several sources, in priority order: texture storage-orientation
 /// flags for fields following the [`STORAGE_V_INVERTED_SUFFIX`] convention, host-sourced sampler
-/// state for fields following the [`LOD_BIAS_SUFFIX`] convention (`_<Tex>_LodBias`), decoded
-/// renderer-reserved variant bitfields, the host's property store (for host-declared properties), inferred text mode from `_FontAtlas` profile,
-/// inferred UI rect clipping from stencil state, explicit-only zero-default UI controls,
-/// [`inferred_keyword_float_f32`] for multi-compile keyword
-/// fields (`_NORMALMAP`, `_ALPHATEST_ON`, ...) that do not yet have shader-specific variant
-/// metadata, or the
-/// scalar/vector default tables / a zero for the unobservable pre-first-batch window.
+/// state for fields following the [`LOD_BIAS_SUFFIX`] convention (`_<Tex>_LodBias`), the host's
+/// property store (for host-declared properties), or the renderer-reserved
+/// `_RenderideVariantBits` variant bitfield. Anything else falls through to zero -- the host's
+/// `MaterialProviderBase` bootstraps every `Sync<X>` on the first batch for a material, so the
+/// renderer's only observable state is the host's authoritative writes; deltas come from later
+/// batches. The pre-first-batch window is never visible.
 #[cfg(test)]
 pub(crate) fn build_embedded_uniform_bytes(
     reflected: &ReflectedRasterLayout,
@@ -163,7 +143,7 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                     if let Some(MaterialPropertyValue::Float4(c)) = store.get_merged(lookup, pid) {
                         *c
                     } else {
-                        default_vec4_for_reflected_field(field_name, ids)
+                        [0.0; 4]
                     };
                 if value_spaces.is_srgb_vec4(field_name) {
                     v = srgb_vec4_rgb_to_linear(v);
@@ -182,26 +162,8 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                 } else if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid)
                 {
                     *f
-                } else if let Some(text_mode) =
-                    text_mode_for_field(field_name, reflected, ids, store, lookup, tex_ctx)
-                {
-                    text_mode
-                } else if let Some(rect_clip) = rect_clip_for_field(field_name, ids, store, lookup)
-                {
-                    rect_clip
-                } else if let Some(default_value) = default_f32_for_reflected_field(field_name, ids)
-                {
-                    default_value
-                } else if explicit_zero_default_f32_field(field_name) {
-                    0.0
                 } else {
-                    inferred_keyword_float_f32(
-                        shader_writer_unescaped_field_name(field_name),
-                        store,
-                        lookup,
-                        ids,
-                    )
-                    .unwrap_or(0.0)
+                    0.0
                 };
                 write_f32_at(&mut buf, field, v);
             }
@@ -231,162 +193,6 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
     }
 
     Some(buf)
-}
-
-/// Returns a stem-aware default for a reflected scalar uniform field.
-fn default_f32_for_reflected_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> Option<f32> {
-    let field_name = shader_writer_unescaped_field_name(field_name);
-    if ids.procedural_skybox_defaults {
-        match field_name {
-            "_Exposure" => return Some(1.3),
-            "_SunSize" => return Some(0.04),
-            "_AtmosphereThickness" => return Some(1.0),
-            _ => {}
-        }
-    }
-    default_f32_for_field(field_name)
-}
-
-/// Returns a stem-aware default for a reflected vector uniform field.
-fn default_vec4_for_reflected_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> [f32; 4] {
-    let field_name = shader_writer_unescaped_field_name(field_name);
-    if ids.procedural_skybox_defaults {
-        match field_name {
-            "_SkyTint" => return [0.5, 0.5, 0.5, 1.0],
-            "_GroundColor" => return [0.369, 0.349, 0.341, 1.0],
-            "_SunColor" => return [1.0, 1.0, 1.0, 1.0],
-            "_SunDirection" => return [0.577, 0.577, 0.577, 0.0],
-            _ => {}
-        }
-    }
-    default_vec4_for_field(field_name)
-}
-
-/// Returns whether a scalar field must use only special-case handling and otherwise default to zero.
-fn explicit_zero_default_f32_field(field_name: &str) -> bool {
-    matches!(
-        shader_writer_unescaped_field_name(field_name),
-        "_TextMode" | "_OVERLAY"
-    )
-}
-
-/// Infers `_TextMode` from the bound `_FontAtlas` profile when the host did not write it.
-fn text_mode_for_field(
-    field_name: &str,
-    reflected: &ReflectedRasterLayout,
-    ids: &StemEmbeddedPropertyIds,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-    tex_ctx: &UniformPackTextureContext<'_>,
-) -> Option<f32> {
-    if shader_writer_unescaped_field_name(field_name) != TEXT_MODE_FIELD {
-        return None;
-    }
-    Some(inferred_text_mode_from_font_atlas(
-        reflected, ids, store, lookup, tex_ctx,
-    ))
-}
-
-/// Infers `_RectClip` for UI content when the host only sent equivalent stencil state.
-fn rect_clip_for_field(
-    field_name: &str,
-    ids: &StemEmbeddedPropertyIds,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-) -> Option<f32> {
-    if shader_writer_unescaped_field_name(field_name) != RECT_CLIP_FIELD {
-        return None;
-    }
-    Some(
-        if ui_content_stencil_state_requires_rect_clip(ids, store, lookup) {
-            1.0
-        } else {
-            0.0
-        },
-    )
-}
-
-fn ui_content_stencil_state_requires_rect_clip(
-    ids: &StemEmbeddedPropertyIds,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-) -> bool {
-    let kw = ids.shared.as_ref();
-    let stencil_ref = int_property(store, lookup, kw.stencil_ref);
-    let stencil_comp = int_property(store, lookup, kw.stencil_comp);
-    let stencil_op = int_property(store, lookup, kw.stencil_op);
-    let stencil_read_mask = int_property(store, lookup, kw.stencil_read_mask);
-    let stencil_write_mask = int_property(store, lookup, kw.stencil_write_mask);
-    let color_mask = int_property(store, lookup, kw.color_mask);
-
-    stencil_ref.is_some_and(|mask| mask != 0)
-        && stencil_comp == Some(UNITY_COMPARE_EQUAL)
-        && stencil_read_mask.is_some_and(|mask| mask != 0)
-        && stencil_write_mask == Some(0)
-        && stencil_op.is_none_or(|op| op == UNITY_STENCIL_OP_KEEP)
-        && color_mask.is_none_or(|mask| mask != UNITY_COLOR_MASK_NONE)
-}
-
-fn int_property(
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-    property_id: i32,
-) -> Option<i32> {
-    first_float_by_pids(store, lookup, &[property_id]).map(|v| v.round() as i32)
-}
-
-/// Infers the text mode from `_FontAtlas`, falling back to MSDF until the atlas is resident.
-fn inferred_text_mode_from_font_atlas(
-    reflected: &ReflectedRasterLayout,
-    ids: &StemEmbeddedPropertyIds,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-    tex_ctx: &UniformPackTextureContext<'_>,
-) -> f32 {
-    let Some(resolved) = resolved_texture_binding_for_texture_name(
-        FONT_ATLAS_TEXTURE,
-        reflected,
-        ids,
-        store,
-        lookup,
-        tex_ctx.primary_texture_2d,
-    ) else {
-        return TEXT_MODE_MSDF;
-    };
-    let texture2d_color_profile = match resolved {
-        ResolvedTextureBinding::Texture2D { asset_id } => tex_ctx
-            .pools
-            .texture
-            .get(asset_id)
-            .map(|texture| texture.color_profile),
-        _ => None,
-    };
-    binding_text_mode_from_metadata(resolved, texture2d_color_profile).unwrap_or(TEXT_MODE_MSDF)
-}
-
-/// Converts resolved texture metadata into the renderer text shader mode.
-fn binding_text_mode_from_metadata(
-    resolved: ResolvedTextureBinding,
-    texture2d_color_profile: Option<ColorProfile>,
-) -> Option<f32> {
-    match resolved {
-        ResolvedTextureBinding::Texture2D { .. } => {
-            texture2d_color_profile.map(text_mode_from_font_atlas_profile)
-        }
-        ResolvedTextureBinding::None
-        | ResolvedTextureBinding::Texture3D { .. }
-        | ResolvedTextureBinding::Cubemap { .. }
-        | ResolvedTextureBinding::RenderTexture { .. }
-        | ResolvedTextureBinding::VideoTexture { .. } => None,
-    }
-}
-
-/// Maps font atlas color profile to Unity text shader keyword mode.
-fn text_mode_from_font_atlas_profile(profile: ColorProfile) -> f32 {
-    match profile {
-        ColorProfile::Linear => TEXT_MODE_MSDF,
-        ColorProfile::SRGB | ColorProfile::SRGBAlpha => TEXT_MODE_RASTER,
-    }
 }
 
 /// Resolves the texture binding for a reflected group-1 texture name.

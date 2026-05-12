@@ -39,14 +39,12 @@ fn vs_main(
 fn fs_main(
     @location(0) uv_in: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    let centered = uv_in * 2.0 - 1.0;
     let polar = uvu::polar_uv(uv_in, max(mat._Pow, 1e-4));
     let polar_st = uvu::apply_st(polar, mat._MainTex_ST);
-    // Reconstruct derivatives from screen-space derivatives of the centered UV; this matches the
-    // Unity reference's `tex2Dgrad` call which avoids the discontinuity at the polar seam.
+    // Reconstruct derivatives from screen-space derivatives of the polar-mapped UV; this matches
+    // the Unity reference's `tex2Dgrad` call which avoids the discontinuity at the polar seam.
     let ddx_uv = dpdx(polar_st);
     let ddy_uv = dpdy(polar_st);
     let col = textureSampleGrad(_MainTex, _MainTex_sampler, polar_st, ddx_uv, ddy_uv);
-    let touch = (centered.x + centered.y) * 0.0;
-    return rg::retain_globals_additive(col + vec4<f32>(touch));
+    return rg::retain_globals_additive(col);
 }

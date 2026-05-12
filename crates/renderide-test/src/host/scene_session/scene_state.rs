@@ -30,13 +30,13 @@ pub(super) struct SceneAssetIds {
 pub(super) struct SceneState {
     /// Live writer keeping the scene-state SHM region alive.
     _writer: SharedMemoryWriter,
-    /// Region descriptors retained for potential future re-sends; currently inert after the
-    /// initial `set_render_space`.
+    /// Region descriptors retained with the writer so the one-shot scene delta remains readable
+    /// until the renderer consumes it.
     _regions: SphereSceneSharedMemoryRegions,
 }
 
 /// Builds the scene-state SHM region, writes the four sub-regions, and latches the resulting
-/// `RenderSpaceUpdate` into the lockstep driver so subsequent `FrameSubmitData` carries the scene.
+/// `RenderSpaceUpdate` into the lockstep driver so the next `FrameSubmitData` carries the scene.
 pub(super) fn build_scene_state(
     prefix: &str,
     backing_dir: &Path,

@@ -178,9 +178,11 @@ fn fs_main(
     let final_water = mix(mat._Color.rgb, grab_color * mat._Color.rgb, visibility);
 
     let albedo = final_water + vec3<f32>(crest);
+    let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let spec_s = textureSample(_SpecGlossMap, _SpecGlossMap_sampler, uv_main);
     let spec_color = spec_s.rgb * mat._SpecColor.rgb;
-    let smoothness = clamp(spec_s.a * mat._Glossiness, 0.0, 1.0);
+    let smoothness_src = select(spec_s.a, albedo_s.a, mat._SmoothnessTextureChannel > 0.5);
+    let smoothness = clamp(smoothness_src * mat._Glossiness, 0.0, 1.0);
 
     let n = psamp::sample_world_normal(_BumpMap, _BumpMap_sampler, uv_main, 0.0, mat._BumpScale, world_n, world_t);
     let cam = rg::camera_world_pos_for_view(view_layer);

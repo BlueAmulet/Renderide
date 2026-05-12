@@ -91,6 +91,16 @@ fn declares_f32_field(src: &str, field_name: &str) -> bool {
     })
 }
 
+fn declares_u32_field(src: &str, field_name: &str) -> bool {
+    src.lines().any(|line| {
+        let trimmed = line.trim();
+        let Some((name, ty)) = trimmed.split_once(':') else {
+            return false;
+        };
+        name.trim() == field_name && ty.trim_start().starts_with("u32")
+    })
+}
+
 #[test]
 fn unlit_uses_reserved_variant_bits_instead_of_keyword_uniform_fields() -> io::Result<()> {
     let src = material_source("unlit.wgsl")?;
@@ -145,36 +155,6 @@ fn unlit_uses_reserved_variant_bits_instead_of_keyword_uniform_fields() -> io::R
     assert!(src.contains("tex_color = tex_color * mat._Color;"));
     assert!(src.contains("color = mat._Color;"));
     Ok(())
-}
-
-fn all_texture_samples_guarded_by_keyword(src: &str, texture_name: &str, keyword: &str) -> bool {
-    let sample = format!("textureSample({texture_name},");
-    let guard = format!("uvu::kw_enabled(mat.{keyword})");
-    let mut saw_sample = false;
-
-    for (sample_pos, _) in src.match_indices(&sample) {
-        saw_sample = true;
-        let before_sample = &src[..sample_pos];
-        let Some(guard_pos) = before_sample.rfind(&guard) else {
-            return false;
-        };
-        if before_sample[guard_pos..].contains('}') {
-            return false;
-        }
-    }
-
-    saw_sample
-}
-
-fn normal_sampling_guarded_by_keyword(src: &str) -> bool {
-    let Some(call_pos) = src.find("sample_optional_world_normal(") else {
-        return false;
-    };
-    let call = &src[call_pos..];
-    let Some(call_end) = call.find(");") else {
-        return false;
-    };
-    call[..call_end].contains("uvu::kw_enabled(mat._NORMALMAP)")
 }
 
 fn count_font_atlas_lod_bias_samples(src: &str) -> usize {

@@ -213,6 +213,7 @@ impl EmbeddedMaterialBindResources {
             _ => match default_2d_texture_color_for_host(host_name) {
                 DefaultTextureColor::White => self.white_2d.view.clone(),
                 DefaultTextureColor::Black => self.black_2d.view.clone(),
+                DefaultTextureColor::FlatNormal => self.flat_normal_2d.view.clone(),
             },
         }
     }

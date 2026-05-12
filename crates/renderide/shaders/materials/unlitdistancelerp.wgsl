@@ -1,11 +1,14 @@
 //! UnlitDistanceLerp (`Shader "UnlitDistanceLerp"`): blends between near/far unlit textures by
 //! distance from `_Point`.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes UnlitDistanceLerp's
+//! shader-specific keyword bits locally.
 
 
 #import renderide::frame::globals as rg
 #import renderide::draw::per_draw as pd
 #import renderide::material::alpha_clip_sample as acs
-#import renderide::material::alpha as ma
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::core::uv as uvu
 
@@ -18,11 +21,13 @@ struct UnlitDistanceLerpMaterial {
     _Distance: f32,
     _Transition: f32,
     _Cutoff: f32,
-    _WORLD_SPACE: f32,
-    _LOCAL_SPACE: f32,
-    _VERTEXCOLORS: f32,
-    _ALPHATEST: f32,
+    _RenderideVariantBits: u32,
 }
+
+const UNLITDISTANCELERP_KW_ALPHATEST: u32 = 1u << 0u;
+const UNLITDISTANCELERP_KW_VERTEXCOLORS: u32 = 1u << 1u;
+const UNLITDISTANCELERP_KW_LOCAL_SPACE: u32 = 1u << 2u;
+const UNLITDISTANCELERP_KW_WORLD_SPACE: u32 = 1u << 3u;
 
 @group(1) @binding(0) var<uniform> mat: UnlitDistanceLerpMaterial;
 @group(1) @binding(1) var _NearTex: texture_2d<f32>;
@@ -66,11 +71,24 @@ fn vs_main(
     return out;
 }
 
+fn unlitdistancelerp_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_ALPHATEST() -> bool {
+    return unlitdistancelerp_kw(UNLITDISTANCELERP_KW_ALPHATEST);
+}
+
+fn kw_VERTEXCOLORS() -> bool {
+    return unlitdistancelerp_kw(UNLITDISTANCELERP_KW_VERTEXCOLORS);
+}
+
+fn kw_WORLD_SPACE() -> bool {
+    return unlitdistancelerp_kw(UNLITDISTANCELERP_KW_WORLD_SPACE);
+}
+
 fn lerp_position(in: VertexOutput) -> vec3<f32> {
-    // Unity compiles WORLD_SPACE / LOCAL_SPACE variants. Default to world space when neither
-    // keyword is present, matching the common Resonite material setup for distance effects.
-    let use_world = uvu::kw_enabled(mat._WORLD_SPACE) || !uvu::kw_enabled(mat._LOCAL_SPACE);
-    return select(in.object_pos, in.world_pos, use_world);
+    return select(in.object_pos, in.world_pos, kw_WORLD_SPACE());
 }
 
 fn distance_lerp(p: vec3<f32>) -> f32 {
@@ -90,7 +108,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var near = textureSample(_NearTex, _NearTex_sampler, near_uv) * mat._NearColor;
     var far = textureSample(_FarTex, _FarTex_sampler, far_uv) * mat._FarColor;
 
-    let use_vertex_colors = uvu::kw_enabled(mat._VERTEXCOLORS);
+    let use_vertex_colors = kw_VERTEXCOLORS();
     if (use_vertex_colors) {
         near = near * in.color;
         far = far * in.color;
@@ -98,11 +116,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let c = mix(near, far, l);
 
-    if (uvu::kw_enabled(mat._ALPHATEST)) {
+    if (kw_ALPHATEST()) {
         let near_alpha = acs::texture_alpha_base_mip(_NearTex, _NearTex_sampler, near_uv) * mat._NearColor.a;
         let far_alpha = acs::texture_alpha_base_mip(_FarTex, _FarTex_sampler, far_uv) * mat._FarColor.a;
         let clip_a = mix(near_alpha, far_alpha, l) * select(1.0, in.color.a, use_vertex_colors);
-        if (ma::should_clip_alpha(clip_a, mat._Cutoff, true)) {
+        if (clip_a <= mat._Cutoff) {
             discard;
         }
     }

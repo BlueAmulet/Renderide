@@ -210,8 +210,11 @@ fn gradient_skybox_color_arrays_stay_raw_for_material_uniform_path() {
     }
 }
 
+/// Unwritten host f32 properties pack as zero. The host's `MaterialProviderBase` bootstrap
+/// writes every `Sync<X>` on the first batch, so this fallthrough is only observable in the
+/// pre-first-batch window that is never rendered.
 #[test]
-fn standard_scalar_defaults_pack_without_host_values() {
+fn unwritten_scalar_fields_pack_as_zero() {
     let (reflected, ids, _) = reflected_with_f32_fields(&[
         ("_GlossMapScale", 0),
         ("_OcclusionStrength", 4),
@@ -237,7 +240,7 @@ fn standard_scalar_defaults_pack_without_host_values() {
     )
     .expect("uniform bytes");
 
-    assert_eq!(read_f32_at(&bytes, 0), 1.0);
-    assert_eq!(read_f32_at(&bytes, 4), 1.0);
+    assert_eq!(read_f32_at(&bytes, 0), 0.0);
+    assert_eq!(read_f32_at(&bytes, 4), 0.0);
     assert_eq!(read_f32_at(&bytes, 8), 0.0);
 }

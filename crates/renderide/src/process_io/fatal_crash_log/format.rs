@@ -99,28 +99,25 @@ fn format_linux_signal(ctx: &CrashContext, buf: &mut [u8; 224]) -> usize {
 /// crash callback supplies no exception details.
 #[cfg(target_os = "macos")]
 fn format_macos_exception(ctx: &CrashContext, buf: &mut [u8; 224]) -> usize {
-    match ctx.exception {
-        Some(ex) => {
-            const P1: &[u8] = b"FATAL: macOS exception (kind=";
-            const P2: &[u8] = b", code=";
-            const SUF: &[u8] = b")\n";
-            let mut w = 0usize;
-            buf[w..w + P1.len()].copy_from_slice(P1);
-            w += P1.len();
-            w += write_decimal(u64::from(ex.kind), &mut buf[w..]);
-            buf[w..w + P2.len()].copy_from_slice(P2);
-            w += P2.len();
-            w += write_decimal(ex.code, &mut buf[w..]);
-            buf[w..w + SUF.len()].copy_from_slice(SUF);
-            w += SUF.len();
-            w
-        }
-        None => {
-            const MSG: &[u8] = b"FATAL: macOS crash (no exception details)\n";
-            let n = MSG.len().min(buf.len());
-            buf[..n].copy_from_slice(&MSG[..n]);
-            n
-        }
+    if let Some(ex) = ctx.exception {
+        const P1: &[u8] = b"FATAL: macOS exception (kind=";
+        const P2: &[u8] = b", code=";
+        const SUF: &[u8] = b")\n";
+        let mut w = 0usize;
+        buf[w..w + P1.len()].copy_from_slice(P1);
+        w += P1.len();
+        w += write_decimal(u64::from(ex.kind), &mut buf[w..]);
+        buf[w..w + P2.len()].copy_from_slice(P2);
+        w += P2.len();
+        w += write_decimal(ex.code, &mut buf[w..]);
+        buf[w..w + SUF.len()].copy_from_slice(SUF);
+        w += SUF.len();
+        w
+    } else {
+        const MSG: &[u8] = b"FATAL: macOS crash (no exception details)\n";
+        let n = MSG.len().min(buf.len());
+        buf[..n].copy_from_slice(&MSG[..n]);
+        n
     }
 }
 

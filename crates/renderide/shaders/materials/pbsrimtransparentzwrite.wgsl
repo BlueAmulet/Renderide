@@ -2,10 +2,15 @@
 //! same shading as [`pbsrimtransparent`], but emits a depth-only prepass before the alpha-blended
 //! forward pass so the surface populates the depth buffer (matches Unity's `Pass { ColorMask 0 }`
 //! prepass + `#pragma surface surf Standard alpha fullforwardshadows` color pass).
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; PBSRimTransparentZWrite's keywords (sorted
+//! alphabetically) occupy bits 0-5. `_ZWRITE` is pipeline-affecting only, so it reserves bit 5
+//! but gets no shader-local constant.
 
 
 #import renderide::frame::globals as rg
 #import renderide::material::fresnel as mf
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -21,14 +26,14 @@ struct PbsRimTransparentZWriteMaterial {
     _Metallic: f32,
     _NormalScale: f32,
     _RimPower: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _METALLICMAP: f32,
-    _OCCLUSION: f32,
-    _pad0: f32,
-    _pad1: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSRIMTRANSPARENTZWRITE_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSRIMTRANSPARENTZWRITE_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSRIMTRANSPARENTZWRITE_KW_METALLICMAP: u32 = 1u << 2u;
+const PBSRIMTRANSPARENTZWRITE_KW_NORMALMAP: u32 = 1u << 3u;
+const PBSRIMTRANSPARENTZWRITE_KW_OCCLUSION: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsRimTransparentZWriteMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -42,9 +47,13 @@ struct PbsRimTransparentZWriteMaterial {
 @group(1) @binding(9)  var _MetallicMap: texture_2d<f32>;
 @group(1) @binding(10) var _MetallicMap_sampler: sampler;
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     return psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        pbs_kw(PBSRIMTRANSPARENTZWRITE_KW_NORMALMAP),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -92,8 +101,8 @@ fn fs_depth_only(
     let occ_s = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main);
     let metal_s = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
     let touch = (mat._Color.x + mat._EmissionColor.x + mat._RimColor.x
-        + mat._Glossiness + mat._Metallic + mat._NormalScale + mat._RimPower + mat._ALBEDOTEX + mat._EMISSIONTEX + mat._NORMALMAP
-        + mat._METALLICMAP + mat._OCCLUSION
+        + mat._Glossiness + mat._Metallic + mat._NormalScale + mat._RimPower
+        + f32(mat._RenderideVariantBits)
         + albedo_s.x + normal_s.x + emit_s.x + occ_s.x + metal_s.x
         + world_pos.x + world_n.x + world_t.x + f32(view_layer)) * 0.0;
     return rg::retain_globals_additive(vec4<f32>(touch, touch, touch, 0.0));
@@ -113,7 +122,7 @@ fn fs_main(
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     var c0 = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSRIMTRANSPARENTZWRITE_KW_ALBEDOTEX)) {
         c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
     let base_color = c0.rgb;
@@ -125,13 +134,13 @@ fn fs_main(
     }
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSRIMTRANSPARENTZWRITE_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (pbs_kw(PBSRIMTRANSPARENTZWRITE_KW_METALLICMAP)) {
         let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
         metallic = m.r;
         smoothness = m.a;
@@ -141,7 +150,7 @@ fn fs_main(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSRIMTRANSPARENTZWRITE_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 
