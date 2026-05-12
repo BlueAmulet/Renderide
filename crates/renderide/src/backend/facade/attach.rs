@@ -45,6 +45,8 @@ pub struct RenderBackendAttachDesc {
     pub config_save_path: PathBuf,
     /// When `true`, the ImGui config window must not write `config.toml` (startup extract failed).
     pub suppress_renderer_config_disk_writes: bool,
+    /// `true` when the renderer is attached to an offscreen headless target.
+    pub headless: bool,
 }
 
 impl RenderBackend {
@@ -72,9 +74,11 @@ impl RenderBackend {
             renderer_settings,
             config_save_path,
             suppress_renderer_config_disk_writes,
+            headless,
         } = desc;
         self.renderer_settings = Some(renderer_settings.clone());
         self.surface_format = Some(surface_format);
+        self.headless = headless;
         self.asset_transfers.attach_gpu_runtime(
             device.clone(),
             queue.clone(),
@@ -83,14 +87,18 @@ impl RenderBackend {
         );
         self.frame_services
             .attach(device.as_ref(), queue.as_ref(), Arc::clone(&gpu_limits))?;
-        self.diagnostics.attach(
-            device.as_ref(),
-            queue.as_ref(),
-            surface_format,
-            renderer_settings,
-            config_save_path,
-            suppress_renderer_config_disk_writes,
-        );
+        if headless {
+            logger::info!("backend diagnostics HUD disabled for headless attach");
+        } else {
+            self.diagnostics.attach(
+                device.as_ref(),
+                queue.as_ref(),
+                surface_format,
+                renderer_settings,
+                config_save_path,
+                suppress_renderer_config_disk_writes,
+            );
+        }
         self.materials
             .try_attach_gpu(device.clone(), &queue, Arc::clone(&gpu_limits))?;
         self.reflection_probes

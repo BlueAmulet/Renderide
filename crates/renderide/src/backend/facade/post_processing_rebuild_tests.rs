@@ -152,6 +152,32 @@ fn multiview_change_updates_graph_key() {
 }
 
 #[test]
+fn headless_backend_forces_empty_post_processing_signature() {
+    let mut backend = RenderBackend::new();
+    backend.headless = true;
+    let settings = PostProcessingSettings {
+        enabled: true,
+        auto_exposure: crate::config::AutoExposureSettings {
+            enabled: true,
+            ..Default::default()
+        },
+        tonemap: TonemapSettings {
+            mode: TonemapMode::AcesFitted,
+        },
+        ..Default::default()
+    };
+
+    let effective = backend.effective_post_processing_settings_for_graph(&settings);
+
+    assert!(
+        !effective.enabled,
+        "headless graph policy must not mutate individual effects; it should disable the master gate"
+    );
+    assert!(PostProcessChainSignature::from_settings(&effective).is_empty());
+    assert!(settings.enabled, "caller settings must stay unchanged");
+}
+
+#[test]
 fn scene_color_format_falls_back_when_requested_format_is_not_renderable() {
     let limits = limits_with_format_usage(
         wgpu::TextureFormat::Rg11b10Ufloat,

@@ -40,7 +40,7 @@ pub mod spawn;
 pub use config::SceneSessionConfig;
 
 use config::SceneSessionOutcome;
-use consts::{asset_ids, sphere_tessellation, torus_geometry};
+use consts::{asset_ids, shader_variants, sphere_tessellation, torus_geometry};
 use png_readback::{PngStabilityWaitTiming, run_lockstep_until_png_stable};
 use scene_state::{SceneAssetIds, build_scene_state, ensure_scene_submitted};
 use shutdown::request_shutdown_and_wait;
@@ -175,6 +175,8 @@ struct MaterialBinding {
     /// AssetBundle-style shader name (e.g. `"Unlit.shader"`); the renderer's stem-prefix
     /// resolver strips the optional `.shader` extension and lowercases.
     shader_name: &'static str,
+    /// Optional Froox shader variant bits encoded into the test stem-prefix shader upload.
+    shader_variant_bits: Option<u32>,
     /// Optional Texture2D bound to a single material property (e.g. `_Tex` for
     /// `unlit_default`). `None` leaves the texture slot at whatever default the renderer
     /// uses for unbound samplers.
@@ -254,6 +256,7 @@ fn build_geometry_for_template(template: SessionTemplate) -> GeometrySetup {
                 material_binding: Some(MaterialBinding {
                     shader_asset_id: asset_ids::TORUS_SHADER,
                     shader_name: "Unlit.shader",
+                    shader_variant_bits: Some(shader_variants::UNLIT_TEXTURE),
                     texture: Some(TextureBinding {
                         asset_id: asset_ids::TORUS_TEXTURE,
                         property_name: "_Tex",
@@ -282,6 +285,7 @@ fn apply_material_binding(
         lockstep,
         binding.shader_asset_id,
         binding.shader_name,
+        binding.shader_variant_bits,
         DEFAULT_ASSET_UPLOAD_TIMEOUT,
     )?;
 
@@ -354,4 +358,26 @@ fn apply_material_binding(
             timeout: DEFAULT_ASSET_UPLOAD_TIMEOUT,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SessionTemplate, build_geometry_for_template, shader_variants};
+
+    #[test]
+    fn torus_unlit_perlin_requests_texture_variant() {
+        let setup = build_geometry_for_template(SessionTemplate::Torus {
+            texture_rgba: vec![255, 255, 255, 255],
+            texture_size: (1, 1),
+        });
+        let binding = setup
+            .material_binding
+            .expect("torus case must upload an unlit material");
+
+        assert_eq!(binding.shader_name, "Unlit.shader");
+        assert_eq!(
+            binding.shader_variant_bits,
+            Some(shader_variants::UNLIT_TEXTURE)
+        );
+    }
 }

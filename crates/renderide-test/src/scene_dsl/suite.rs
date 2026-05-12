@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::HarnessError;
 
 use super::cases::{IntegrationCase, lookup, registry};
-use super::output::CaseOutputLayout;
+use super::output::{CaseOutputLayout, report_from_evaluation, write_report};
 use super::runner::{CaseRunOutcome, RunnerConfig, run_integration_case};
 
 /// Suite-level report filename written under the configured output root.
@@ -119,6 +119,18 @@ pub fn select_cases(requested: &[String]) -> Result<Vec<IntegrationCase>, Harnes
 
 /// Runs every configured case in parallel and writes the suite-level report.
 pub fn run_suite(config: SuiteConfig) -> Result<SuiteRunOutcome, HarnessError> {
+    run_suite_with(config, run_case_for_suite)
+}
+
+/// Runs every configured case and promotes each non-flat capture into its committed golden.
+pub fn update_suite(config: SuiteConfig) -> Result<SuiteRunOutcome, HarnessError> {
+    run_suite_with(config, run_case_for_update)
+}
+
+fn run_suite_with(
+    config: SuiteConfig,
+    run_case: fn(&IntegrationCase, &RunnerConfig) -> SuiteCaseReport,
+) -> Result<SuiteRunOutcome, HarnessError> {
     std::fs::create_dir_all(&config.runner.output_root)?;
     let jobs = config.jobs.max(1).min(config.cases.len().max(1));
     let pool = rayon::ThreadPoolBuilder::new()
@@ -131,7 +143,7 @@ pub fn run_suite(config: SuiteConfig) -> Result<SuiteRunOutcome, HarnessError> {
         config
             .cases
             .par_iter()
-            .map(|case| run_case_for_suite(case, runner))
+            .map(|case| run_case(case, runner))
             .collect::<Vec<_>>()
     });
 
@@ -155,6 +167,64 @@ fn run_case_for_suite(case: &IntegrationCase, runner: &RunnerConfig) -> SuiteCas
             error: Some(err.to_string()),
         },
     }
+}
+
+fn run_case_for_update(case: &IntegrationCase, runner: &RunnerConfig) -> SuiteCaseReport {
+    let fallback_layout = CaseOutputLayout::for_case(&runner.output_root, &case.name);
+    match run_integration_case(case, runner) {
+        Ok(outcome) => report_from_update_outcome(case, outcome),
+        Err(err) => SuiteCaseReport {
+            name: case.name.clone(),
+            passed: false,
+            artifacts_dir: fallback_layout.root,
+            report_json: fallback_layout.report_json,
+            error: Some(err.to_string()),
+        },
+    }
+}
+
+fn report_from_update_outcome(case: &IntegrationCase, outcome: CaseRunOutcome) -> SuiteCaseReport {
+    match promote_case_golden(case, &outcome) {
+        Ok(report) => report,
+        Err(err) => SuiteCaseReport {
+            name: case.name.clone(),
+            passed: false,
+            artifacts_dir: outcome.layout.root,
+            report_json: outcome.layout.report_json,
+            error: Some(format!("golden update: {err}")),
+        },
+    }
+}
+
+fn promote_case_golden(
+    case: &IntegrationCase,
+    outcome: &CaseRunOutcome,
+) -> Result<SuiteCaseReport, HarnessError> {
+    crate::golden::generate(&outcome.layout.actual_png, &case.golden_path)?;
+    if let Err(e) = std::fs::copy(&outcome.layout.actual_png, &outcome.layout.golden_png_copy) {
+        logger::warn!("suite update: failed to refresh artifact golden copy: {e}");
+    }
+
+    let actual = image::open(&outcome.layout.actual_png)
+        .map_err(|source| HarnessError::PngRead {
+            path: outcome.layout.actual_png.clone(),
+            source,
+        })?
+        .to_rgba8();
+    let eval = case
+        .tolerance
+        .evaluate(&actual, &actual)
+        .map_err(|msg| HarnessError::ImageCompare(format!("post-update self-compare: {msg}")))?;
+    let report = report_from_evaluation(case, eval);
+    write_report(&outcome.layout, &report)
+        .map_err(|e| HarnessError::QueueOptions(format!("write update report: {e}")))?;
+    Ok(SuiteCaseReport {
+        name: report.name,
+        passed: true,
+        artifacts_dir: outcome.layout.root.clone(),
+        report_json: outcome.layout.report_json.clone(),
+        error: None,
+    })
 }
 
 fn report_from_outcome(outcome: CaseRunOutcome) -> SuiteCaseReport {

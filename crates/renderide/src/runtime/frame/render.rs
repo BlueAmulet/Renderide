@@ -160,8 +160,13 @@ impl RendererRuntime {
         // before the render graph dispatches, so passing a stale/zero value produces a degenerate
         // frustum and randomly culls scene objects.
         let swapchain_extent_px = gpu.surface_extent_px();
+        let main_post_processing = if includes_main && gpu.is_headless() {
+            crate::render_graph::ViewPostProcessing::disabled()
+        } else {
+            crate::render_graph::ViewPostProcessing::primary_view()
+        };
         let prepared: Vec<FrameViewPlan<'a>> =
-            self.collect_prepared_views(mode, swapchain_extent_px);
+            self.collect_prepared_views(mode, swapchain_extent_px, main_post_processing);
         trace_prepared_views(&prepared);
         let headless_snapshot = {
             profiling::scope!("render::headless_snapshot");

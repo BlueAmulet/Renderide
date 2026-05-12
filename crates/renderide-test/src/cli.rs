@@ -16,7 +16,7 @@ use crate::error::HarnessError;
 use crate::host::{HarnessRunOutcome, HostHarness, HostHarnessConfig, SessionTemplate};
 use crate::scene_dsl::output::default_output_root;
 use crate::scene_dsl::runner::RunnerConfig;
-use crate::scene_dsl::suite::{SuiteConfig, run_suite, select_cases};
+use crate::scene_dsl::suite::{SuiteConfig, run_suite, select_cases, update_suite};
 
 /// CLI entry point.
 pub fn run() -> ExitCode {
@@ -88,6 +88,12 @@ enum Command {
     },
     /// Run the registered scene suite in parallel and fail if any case fails.
     CheckSuite {
+        /// Suite harness options.
+        #[command(flatten)]
+        suite: SuiteOpts,
+    },
+    /// Run the registered scene suite and overwrite each selected golden with its capture.
+    UpdateSuite {
         /// Suite harness options.
         #[command(flatten)]
         suite: SuiteOpts,
@@ -181,10 +187,57 @@ fn dispatch(cli: Cli) -> Result<(), HarnessError> {
             Ok(())
         }
         Command::CheckSuite { suite } => run_suite_command(&suite),
+        Command::UpdateSuite { suite } => run_update_suite_command(&suite),
     }
 }
 
 fn run_suite_command(opts: &SuiteOpts) -> Result<(), HarnessError> {
+    let config = suite_config_from_opts(opts)?;
+    logger::info!(
+        "Suite: running {} case(s) with jobs={}, renderer_path={}, output_root={}",
+        config.cases.len(),
+        config.jobs,
+        config.runner.renderer_path.display(),
+        config.runner.output_root.display()
+    );
+
+    let outcome = run_suite(config)?;
+    print_suite_outcome(&outcome, "PASS", "passed");
+    if outcome.passed() {
+        Ok(())
+    } else {
+        Err(HarnessError::SuiteFailed {
+            failed: outcome.report.failed,
+            total: outcome.report.total,
+            report_path: outcome.report_path,
+        })
+    }
+}
+
+fn run_update_suite_command(opts: &SuiteOpts) -> Result<(), HarnessError> {
+    let config = suite_config_from_opts(opts)?;
+    logger::info!(
+        "Suite update: running {} case(s) with jobs={}, renderer_path={}, output_root={}",
+        config.cases.len(),
+        config.jobs,
+        config.runner.renderer_path.display(),
+        config.runner.output_root.display()
+    );
+
+    let outcome = update_suite(config)?;
+    print_suite_outcome(&outcome, "UPDATE", "updated");
+    if outcome.passed() {
+        Ok(())
+    } else {
+        Err(HarnessError::SuiteFailed {
+            failed: outcome.report.failed,
+            total: outcome.report.total,
+            report_path: outcome.report_path,
+        })
+    }
+}
+
+fn suite_config_from_opts(opts: &SuiteOpts) -> Result<SuiteConfig, HarnessError> {
     let cases = select_cases(&opts.case)?;
     let case_count = cases.len();
     let renderer_path = match &opts.renderer {
@@ -198,20 +251,26 @@ fn run_suite_command(opts: &SuiteOpts) -> Result<(), HarnessError> {
     runner.output_root = opts.output_root.clone().unwrap_or_else(default_output_root);
 
     let jobs = opts.jobs.unwrap_or(case_count.max(1)).max(1);
-    logger::info!(
-        "Suite: running {case_count} case(s) with jobs={jobs}, renderer_path={}, output_root={}",
-        runner.renderer_path.display(),
-        runner.output_root.display()
-    );
-
-    let outcome = run_suite(SuiteConfig {
+    Ok(SuiteConfig {
         cases,
         runner,
         jobs,
-    })?;
+    })
+}
+
+fn print_suite_outcome(
+    outcome: &crate::scene_dsl::suite::SuiteRunOutcome,
+    success_label: &str,
+    result_label: &str,
+) {
     for case in &outcome.report.cases {
         if case.passed {
-            println!("PASS {} ({})", case.name, case.artifacts_dir.display());
+            println!(
+                "{} {} ({})",
+                success_label,
+                case.name,
+                case.artifacts_dir.display()
+            );
         } else {
             println!(
                 "FAIL {} ({}) {}",
@@ -223,19 +282,9 @@ fn run_suite_command(opts: &SuiteOpts) -> Result<(), HarnessError> {
     }
     println!("Suite report: {}", outcome.report_path.display());
     println!(
-        "Suite result: {}/{} passed",
-        outcome.report.passed, outcome.report.total
+        "Suite result: {}/{} {}",
+        outcome.report.passed, outcome.report.total, result_label
     );
-
-    if outcome.passed() {
-        Ok(())
-    } else {
-        Err(HarnessError::SuiteFailed {
-            failed: outcome.report.failed,
-            total: outcome.report.total,
-            report_path: outcome.report_path,
-        })
-    }
 }
 
 fn run_harness(common: &CommonOpts) -> Result<HarnessRunOutcome, HarnessError> {

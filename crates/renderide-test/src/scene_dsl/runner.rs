@@ -201,7 +201,7 @@ fn evaluate_and_finalize(
     }
     if !case.golden_path.exists() {
         let msg = format!(
-            "golden image missing at {}; run `renderide-test generate --case {}` to create it",
+            "golden image missing at {}; run `renderide-test update-suite --case {}` to create it",
             case.golden_path.display(),
             case.name
         );
@@ -216,6 +216,16 @@ fn evaluate_and_finalize(
 
     let actual = load_rgba(&layout.actual_png)?;
     let golden = load_rgba(&case.golden_path)?;
+    if let Err(e) = crate::golden::reject_flat_image(&actual, &layout.actual_png) {
+        let report = report_from_error(case, e.to_string());
+        let _ = write_report(&layout, &report);
+        return Ok(CaseRunOutcome { layout, report });
+    }
+    if let Err(e) = crate::golden::reject_flat_image(&golden, &case.golden_path) {
+        let report = report_from_error(case, e.to_string());
+        let _ = write_report(&layout, &report);
+        return Ok(CaseRunOutcome { layout, report });
+    }
 
     match case.tolerance.evaluate(&actual, &golden) {
         Ok(eval) => {
@@ -266,4 +276,51 @@ fn write_diff_image(
             source: image::ImageError::IoError(std::io::Error::other(format!("{e:?}"))),
         })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn non_flat_image() -> image::RgbaImage {
+        let mut img = image::RgbaImage::new(8, 8);
+        for y in 0..8 {
+            for x in 0..8 {
+                img.put_pixel(x, y, image::Rgba([(x * 16) as u8, (y * 16) as u8, 31, 255]));
+            }
+        }
+        img
+    }
+
+    #[test]
+    fn evaluate_and_finalize_reports_flat_actual_without_tolerance_eval() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let output_root = temp.path().join("out");
+        let layout = CaseOutputLayout::for_case(&output_root, "unlit_sphere");
+        layout.prepare().expect("prepare layout");
+
+        let mut case = crate::scene_dsl::cases::unlit_sphere();
+        case.golden_path = temp.path().join("unlit_sphere.png");
+        non_flat_image()
+            .save(&case.golden_path)
+            .expect("write golden");
+
+        let mut flat = image::RgbaImage::new(8, 8);
+        for pixel in flat.pixels_mut() {
+            *pixel = image::Rgba([39, 63, 97, 255]);
+        }
+        flat.save(&layout.actual_png).expect("write actual");
+
+        let outcome = evaluate_and_finalize(&case, layout).expect("finalize");
+
+        assert!(!outcome.report.passed);
+        assert!(outcome.report.evaluation.is_none());
+        assert!(
+            outcome
+                .report
+                .error
+                .as_deref()
+                .is_some_and(|msg| msg.contains("flat single color"))
+        );
+    }
 }
