@@ -1,13 +1,28 @@
 //! Direct + indirect lighting for the Xiexe Toon 2.0 BRDF.
 //!
-//! Keeps Filament-style PBS math (energy-conserving D_GGX + V_Smith_GGX_Correlated +
-//! Schlick Fresnel with metallic-workflow F0, DFG LUT energy compensation for direct
-//! lighting, Lagarde specular AO for indirect probe radiance) underneath the XSToon 2.0
-//! stylized stack -- toon shadow ramps, matcaps, rim, shadow rim, subsurface scattering,
-//! outline lighting, and the indirect-specular ramp-shadow blend from
-//! `XSLightingFunctions.cginc:285`. Composition order follows Unity 2.0
-//! `BRDF_XSLighting` (`XSLighting.cginc:43-71`), including the `col += max(directSpec, rim)`
-//! step that XSToon3 dropped.
+//! Layers XSToon 2.0 stylization on top of PBSMetallic's energy budget.
+//!
+//! - Direct + indirect specular: Filament D_GGX + V_Smith_GGX_Correlated + Schlick
+//!   Fresnel with `brdf::metallic_f0(diffuse_color, metallic)` (the same F0
+//!   PBSMetallic uses), DFG LUT energy compensation for the direct lobe, Lagarde
+//!   specular AO for the probe radiance.
+//! - Direct diffuse: Filament Lambert (`brdf::fd_lambert`) with the toon shadow
+//!   ramp as a 3-channel multiplicative tint replacing `NdotL * att`. A white ramp
+//!   recovers PBSMetallic exactly; colored / banded ramps drive the toon stylization.
+//! - Indirect diffuse / specular: PBSMetallic's `(1 - indirect_specular_energy)`
+//!   split (`modules/pbs/lighting.wgsl:166-169`, `modules/pbs/brdf.wgsl:188-206`)
+//!   so the indirect-light budget is shared between the SH probe and the spec lobe.
+//!   Colored `_OcclusionColor` modulates indirect diffuse only (matches PBSMetallic).
+//! - XSToon 2.0 stylization preserved on top: toon ramp diffuse, matcap (`_MATCAP`
+//!   keyword), rim / shadow rim, subsurface scattering, outline lighting, the
+//!   indirect-spec ramp-shadow blend from `XSLightingFunctions.cginc:285`, the
+//!   `_ReflectivityMask.r` additive reflection weight (`cginc:412`), and
+//!   `col += max(directSpec_sum, rim)` from `XSLighting.cginc:60`.
+//!
+//! `_SpecularIntensity` and `_SpecularAlbedoTint` are artist controls layered on
+//! top of the PBS direct-spec lobe; at `_SpecularIntensity = 1`,
+//! `_SpecularAlbedoTint = 0`, and a white ramp, the result is energy-identical to
+//! a matched PBSMetallic ball.
 
 #define_import_path renderide::xiexe::toon2::lighting
 
