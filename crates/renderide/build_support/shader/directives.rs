@@ -9,6 +9,10 @@ pub(super) enum BuildPassKind {
     Forward,
     /// Main forward material pass with authored two-sided culling.
     ForwardTwoSided,
+    /// Fixed straight-alpha forward material pass.
+    ForwardAlphaBlend,
+    /// Fixed premultiplied-alpha forward material pass.
+    ForwardPremultipliedTransparent,
     /// Transparent forward material pass.
     ForwardTransparent,
     /// Transparent forward material pass with fixed front-face culling.
@@ -39,6 +43,10 @@ impl BuildPassKind {
             "forward_two_sided" | "forwardtwosided" | "two_sided" | "twosided" => {
                 Ok(Self::ForwardTwoSided)
             }
+            "forward_alpha_blend" | "alpha_blend" | "alphablend" => Ok(Self::ForwardAlphaBlend),
+            "forward_premultiplied_transparent"
+            | "premultiplied_transparent"
+            | "premultiplied_alpha" => Ok(Self::ForwardPremultipliedTransparent),
             "forward_transparent" | "transparent" => Ok(Self::ForwardTransparent),
             "forward_transparent_cull_front" | "transparent_cull_front" | "transparent_front" => {
                 Ok(Self::ForwardTransparentCullFront)
@@ -65,6 +73,8 @@ impl BuildPassKind {
         match self {
             Self::Forward => "Forward",
             Self::ForwardTwoSided => "ForwardTwoSided",
+            Self::ForwardAlphaBlend => "ForwardAlphaBlend",
+            Self::ForwardPremultipliedTransparent => "ForwardPremultipliedTransparent",
             Self::ForwardTransparent => "ForwardTransparent",
             Self::ForwardTransparentCullFront => "ForwardTransparentCullFront",
             Self::ForwardTransparentCullBack => "ForwardTransparentCullBack",
@@ -424,6 +434,16 @@ fn fs_depth_projection() -> @location(0) vec4<f32> {
 fn fs_circle() -> @location(0) vec4<f32> {
     return vec4<f32>(1.0);
 }
+//#pass forward_alpha_blend
+@fragment
+fn fs_fade() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
+//#pass forward_premultiplied_transparent
+@fragment
+fn fs_premul() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
 "#,
             "test.wgsl",
         )?;
@@ -442,6 +462,22 @@ fn fs_circle() -> @location(0) vec4<f32> {
                 BuildPassDirective {
                     kind: BuildPassKind::TransparentRgb,
                     fragment_entry: "fs_circle".to_string(),
+                    vertex_entry: "vs_main".to_string(),
+                    alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
+                },
+                BuildPassDirective {
+                    kind: BuildPassKind::ForwardAlphaBlend,
+                    fragment_entry: "fs_fade".to_string(),
+                    vertex_entry: "vs_main".to_string(),
+                    alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
+                },
+                BuildPassDirective {
+                    kind: BuildPassKind::ForwardPremultipliedTransparent,
+                    fragment_entry: "fs_premul".to_string(),
                     vertex_entry: "vs_main".to_string(),
                     alpha_to_coverage: false,
                     depth_bias_slope_scale_bits: 0.0f32.to_bits(),

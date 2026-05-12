@@ -21,7 +21,7 @@ fn vs_main(
     @location(1) n: vec4<f32>,
 ) -> mv::ClipVertexOutput {
     let d = pd::get_draw(instance_index);
-    let world_p = mv::world_position(d, vec4<f32>(pos.xyz + n.xyz * mat._Offset, 1.0));
+    let world_p = mv::world_position(d, vec4<f32>(pos.xyz, 1.0));
 #ifdef MULTIVIEW
     let vp = mv::select_view_proj(d, view_idx);
 #else

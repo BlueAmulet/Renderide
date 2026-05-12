@@ -242,6 +242,23 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> 
 
     let variant_bits_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/variant_bits.wgsl"))?;
+    for (constant, bit) in [
+        ("XTOON_KW_ALPHABLEND", 0),
+        ("XTOON_KW_CUTOUT", 1),
+        ("XTOON_KW_EMISSION_MAP", 2),
+        ("XTOON_KW_MATCAP", 3),
+        ("XTOON_KW_NORMAL_MAP", 4),
+        ("XTOON_KW_OCCLUSION_METALLIC", 5),
+        ("XTOON_KW_RAMPMASK_OUTLINEMASK_THICKNESS", 6),
+        ("XTOON_KW_TRANSPARENT", 7),
+        ("XTOON_KW_VERTEX_COLOR_ALBEDO", 8),
+        ("XTOON_KW_VERTEXLIGHT_ON", 9),
+    ] {
+        assert!(
+            variant_bits_src.contains(&format!("const {constant}: u32 = 1u << {bit}u;")),
+            "{constant} must match Froox's sorted UniqueKeywords bit order"
+        );
+    }
     for required in [
         "const XTOON_KEYWORD_LAYOUT_GENERIC: u32 = 0u;",
         "const XTOON_KEYWORD_LAYOUT_STATIC_VERTEXLIGHT: u32 = 1u;",
@@ -263,11 +280,7 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> 
         );
     }
 
-    for file_name in [
-        "xstoon2.0.wgsl",
-        "xstoon2.0-outlined.wgsl",
-        "xstoon2.0_outlined.wgsl",
-    ] {
+    for file_name in ["xstoon2.0.wgsl", "xstoon2.0_outlined.wgsl"] {
         let src = material_source(file_name)?;
         assert!(
             src.contains("xvb::resolved_alpha_mode_from_bits(XIEE_ALPHA_MODE)"),
@@ -278,6 +291,16 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> 
             "{file_name} must not retain the legacy keyword-driven alpha-mode resolver"
         );
     }
+
+    let fixed_outlined = material_source("xstoon2.0-outlined.wgsl")?;
+    assert!(
+        !fixed_outlined.contains("resolved_alpha_mode_from_bits"),
+        "xstoon2.0-outlined.wgsl maps to the fixed XSToon2.0 Outlined source and must not route alpha through generic variant bits"
+    );
+    assert!(
+        fixed_outlined.contains("view_layer, XIEE_ALPHA_MODE"),
+        "xstoon2.0-outlined.wgsl must keep the fixed opaque alpha mode"
+    );
     Ok(())
 }
 
