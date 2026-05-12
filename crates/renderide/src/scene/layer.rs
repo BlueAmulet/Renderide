@@ -405,7 +405,10 @@ mod tests {
              main view keeps rendering it",
         );
         // Sanity: the Hidden anchor itself reports Hidden.
-        assert_eq!(scene.transform_special_layer(id, 1), Some(LayerType::Hidden));
+        assert_eq!(
+            scene.transform_special_layer(id, 1),
+            Some(LayerType::Hidden)
+        );
     }
 
     /// Builds a scene mirroring the FrooxEngine `UserspaceRadiantDash` + `OverlayManager` slot

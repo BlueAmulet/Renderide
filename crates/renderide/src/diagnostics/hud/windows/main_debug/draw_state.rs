@@ -45,59 +45,8 @@ impl TabView for DrawStateTab {
             ui.text("Waiting for frame diagnostics");
             return;
         };
-        ui.checkbox("UI / alpha", &mut state.draw_state_ui_only);
-        ui.same_line();
-        ui.checkbox("Has override", &mut state.draw_state_only_overrides);
-        ui.same_line();
-        if ui.checkbox("Overlay only", &mut state.draw_state_overlay_only)
-            && state.draw_state_overlay_only
-        {
-            state.draw_state_hide_overlay = false;
-        }
-        ui.same_line();
-        if ui.checkbox("Hide overlay", &mut state.draw_state_hide_overlay)
-            && state.draw_state_hide_overlay
-        {
-            state.draw_state_overlay_only = false;
-        }
-        ui.set_next_item_width(120.0);
-        ui.input_text("Node", &mut state.draw_state_node_filter)
-            .hint("substring or id")
-            .build();
-        ui.same_line();
-        ui.set_next_item_width(180.0);
-        ui.input_text("Material / Pipeline", &mut state.draw_state_text_filter)
-            .hint("substring")
-            .build();
-        ui.same_line();
-        if ui.small_button("Reset filters") {
-            state.draw_state_ui_only = false;
-            state.draw_state_only_overrides = false;
-            state.draw_state_overlay_only = false;
-            state.draw_state_hide_overlay = false;
-            state.draw_state_node_filter.clear();
-            state.draw_state_text_filter.clear();
-        }
-
-        let node_filter = state.draw_state_node_filter.trim();
-        let text_filter = state.draw_state_text_filter.trim().to_ascii_lowercase();
-        let rows: Vec<&WorldMeshDrawStateRow> = d
-            .mesh_draw
-            .draw_state_rows
-            .iter()
-            .filter(|row| !state.draw_state_ui_only || draw_state_is_uiish(row))
-            .filter(|row| !state.draw_state_only_overrides || draw_state_has_override(row))
-            .filter(|row| !state.draw_state_overlay_only || row.is_overlay)
-            .filter(|row| !state.draw_state_hide_overlay || !row.is_overlay)
-            .filter(|row| node_filter.is_empty() || row.node_id.to_string().contains(node_filter))
-            .filter(|row| {
-                text_filter.is_empty()
-                    || pipeline_label(&row.pipeline)
-                        .to_ascii_lowercase()
-                        .contains(&text_filter)
-                    || row.material_asset_id.to_string().contains(&text_filter)
-            })
-            .collect();
+        draw_filters(ui, state);
+        let rows = filtered_draw_state_rows(d, state);
         let overlay_count = rows.iter().filter(|r| r.is_overlay).count();
         ui.text_disabled(format!(
             "{} rows shown  ({} submitted, {} overlay)",
@@ -106,79 +55,150 @@ impl TabView for DrawStateTab {
             overlay_count,
         ));
 
-        if let Some(_table) = ui.begin_table_with_sizing(
-            "draw_state_rows",
-            9,
-            scrolling_table_flags(),
-            [0.0, 360.0],
-            0.0,
-        ) {
-            fixed_col(ui, "Draw", 44.0);
-            fixed_col(ui, "Node", 56.0);
-            fixed_col(ui, "OVL", 44.0);
-            stretch_col(ui, "Mesh");
-            stretch_col(ui, "Material");
-            stretch_col(ui, "Pipeline");
-            stretch_col(ui, "Blend");
-            stretch_col(ui, "Depth");
-            stretch_col(ui, "Stencil");
-            ui.table_headers_row();
+        draw_rows_table(ui, &rows);
+    }
+}
 
-            let clip = ListClipper::new(rows.len() as i32);
-            let tok = clip.begin(ui);
-            for row_i in tok.iter() {
-                let row = rows[row_i as usize];
-                ui.table_next_row();
+fn draw_filters(ui: &imgui::Ui, state: &mut HudUiState) {
+    ui.checkbox("UI / alpha", &mut state.draw_state_ui_only);
+    ui.same_line();
+    ui.checkbox("Has override", &mut state.draw_state_only_overrides);
+    ui.same_line();
+    if ui.checkbox("Overlay only", &mut state.draw_state_overlay_only)
+        && state.draw_state_overlay_only
+    {
+        state.draw_state_hide_overlay = false;
+    }
+    ui.same_line();
+    if ui.checkbox("Hide overlay", &mut state.draw_state_hide_overlay)
+        && state.draw_state_hide_overlay
+    {
+        state.draw_state_overlay_only = false;
+    }
+    ui.set_next_item_width(120.0);
+    ui.input_text("Node", &mut state.draw_state_node_filter)
+        .hint("substring or id")
+        .build();
+    ui.same_line();
+    ui.set_next_item_width(180.0);
+    ui.input_text("Material / Pipeline", &mut state.draw_state_text_filter)
+        .hint("substring")
+        .build();
+    ui.same_line();
+    if ui.small_button("Reset filters") {
+        state.draw_state_ui_only = false;
+        state.draw_state_only_overrides = false;
+        state.draw_state_overlay_only = false;
+        state.draw_state_hide_overlay = false;
+        state.draw_state_node_filter.clear();
+        state.draw_state_text_filter.clear();
+    }
+}
 
-                ui.table_next_column();
-                ui.text(format!("{}", row.draw_index));
+fn filtered_draw_state_rows<'a>(
+    diagnostics: &'a FrameDiagnosticsSnapshot,
+    state: &HudUiState,
+) -> Vec<&'a WorldMeshDrawStateRow> {
+    let node_filter = state.draw_state_node_filter.trim();
+    let text_filter = state.draw_state_text_filter.trim().to_ascii_lowercase();
+    diagnostics
+        .mesh_draw
+        .draw_state_rows
+        .iter()
+        .filter(|row| !state.draw_state_ui_only || draw_state_is_uiish(row))
+        .filter(|row| !state.draw_state_only_overrides || draw_state_has_override(row))
+        .filter(|row| !state.draw_state_overlay_only || row.is_overlay)
+        .filter(|row| !state.draw_state_hide_overlay || !row.is_overlay)
+        .filter(|row| node_filter.is_empty() || row.node_id.to_string().contains(node_filter))
+        .filter(|row| matches_text_filter(row, &text_filter))
+        .collect()
+}
 
-                ui.table_next_column();
-                ui.text(format!("{}", row.node_id));
+fn matches_text_filter(row: &WorldMeshDrawStateRow, text_filter: &str) -> bool {
+    text_filter.is_empty()
+        || pipeline_label(&row.pipeline)
+            .to_ascii_lowercase()
+            .contains(text_filter)
+        || row.material_asset_id.to_string().contains(text_filter)
+}
 
-                ui.table_next_column();
-                if row.is_overlay {
-                    ui.text_colored(TAG_OVERLAY, "OVL");
-                } else {
-                    ui.text_disabled("--");
-                }
+fn draw_rows_table(ui: &imgui::Ui, rows: &[&WorldMeshDrawStateRow]) {
+    if let Some(_table) = ui.begin_table_with_sizing(
+        "draw_state_rows",
+        9,
+        scrolling_table_flags(),
+        [0.0, 360.0],
+        0.0,
+    ) {
+        fixed_col(ui, "Draw", 44.0);
+        fixed_col(ui, "Node", 56.0);
+        fixed_col(ui, "OVL", 44.0);
+        stretch_col(ui, "Mesh");
+        stretch_col(ui, "Material");
+        stretch_col(ui, "Pipeline");
+        stretch_col(ui, "Blend");
+        stretch_col(ui, "Depth");
+        stretch_col(ui, "Stencil");
+        ui.table_headers_row();
 
-                ui.table_next_column();
-                ui.text(format!("{}:{}", row.mesh_asset_id, row.slot_index));
-
-                ui.table_next_column();
-                ui.text(format!(
-                    "{} / {:?}",
-                    row.material_asset_id, row.property_block_slot0
-                ));
-
-                ui.table_next_column();
-                let pipeline = pipeline_label(&row.pipeline);
-                if is_ui_pipeline(&pipeline) {
-                    ui.text_colored(TAG_UI, &pipeline);
-                } else {
-                    ui.text(&pipeline);
-                }
-
-                ui.table_next_column();
-                let blend = blend_mode_label(row.blend_mode);
-                if blend == "opaque" || blend == "stem" {
-                    ui.text(&blend);
-                } else {
-                    ui.text_colored(TAG_BLEND, &blend);
-                }
-
-                ui.table_next_column();
-                draw_depth_cell(ui, row);
-
-                ui.table_next_column();
-                if row.stencil_enabled {
-                    ui.text_colored(TAG_STENCIL, stencil_label(row));
-                } else {
-                    ui.text_disabled("--");
-                }
-            }
+        let clip = ListClipper::new(rows.len() as i32);
+        let tok = clip.begin(ui);
+        for row_i in tok.iter() {
+            draw_row(ui, rows[row_i as usize]);
         }
+    }
+}
+
+fn draw_row(ui: &imgui::Ui, row: &WorldMeshDrawStateRow) {
+    ui.table_next_row();
+
+    ui.table_next_column();
+    ui.text(row.draw_index.to_string());
+
+    ui.table_next_column();
+    ui.text(row.node_id.to_string());
+
+    ui.table_next_column();
+    if row.is_overlay {
+        ui.text_colored(TAG_OVERLAY, "OVL");
+    } else {
+        ui.text_disabled("--");
+    }
+
+    ui.table_next_column();
+    let mesh_asset_id = row.mesh_asset_id;
+    let slot_index = row.slot_index;
+    ui.text(format!("{mesh_asset_id}:{slot_index}"));
+
+    ui.table_next_column();
+    let material_asset_id = row.material_asset_id;
+    let property_block_slot0 = row.property_block_slot0;
+    ui.text(format!("{material_asset_id} / {property_block_slot0:?}"));
+
+    ui.table_next_column();
+    let pipeline = pipeline_label(&row.pipeline);
+    if is_ui_pipeline(&pipeline) {
+        ui.text_colored(TAG_UI, &pipeline);
+    } else {
+        ui.text(&pipeline);
+    }
+
+    ui.table_next_column();
+    let blend = blend_mode_label(row.blend_mode);
+    if blend == "opaque" || blend == "stem" {
+        ui.text(&blend);
+    } else {
+        ui.text_colored(TAG_BLEND, &blend);
+    }
+
+    ui.table_next_column();
+    draw_depth_cell(ui, row);
+
+    ui.table_next_column();
+    if row.stencil_enabled {
+        ui.text_colored(TAG_STENCIL, stencil_label(row));
+    } else {
+        ui.text_disabled("--");
     }
 }
 
