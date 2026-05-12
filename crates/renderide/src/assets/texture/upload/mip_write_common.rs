@@ -6,6 +6,7 @@ use super::super::decode::decode_mip_to_rgba8;
 use super::super::layout::{host_format_is_compressed, mip_byte_len};
 use super::error::TextureUploadError;
 use super::mip_chain_walk::{MipChainStop, resolve_mip_payload_slot};
+use crate::gpu::GpuQueueAccessMode;
 
 /// Format-side context shared by every mip in one texture upload (2D, cubemap, 3D).
 ///
@@ -252,6 +253,8 @@ pub(super) struct Texture2dMipWrite<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this write.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination texture.
     pub texture: &'a wgpu::Texture,
     /// Mip level index.
@@ -272,6 +275,7 @@ pub(super) fn write_one_mip(write: &Texture2dMipWrite<'_>) -> Result<(), Texture
     let Texture2dMipWrite {
         queue,
         gpu_queue_access_gate,
+        queue_access_mode,
         texture,
         mip_level,
         width,
@@ -282,6 +286,7 @@ pub(super) fn write_one_mip(write: &Texture2dMipWrite<'_>) -> Result<(), Texture
     write_texture_region(TextureRegionWrite {
         queue,
         gpu_queue_access_gate,
+        queue_access_mode,
         destination: wgpu::TexelCopyTextureInfo {
             texture,
             mip_level,
@@ -297,6 +302,45 @@ pub(super) fn write_one_mip(write: &Texture2dMipWrite<'_>) -> Result<(), Texture
     })
 }
 
+/// Writes one full 2D mip level while the caller already holds the queue gate.
+pub(super) fn write_one_mip_with_gate(
+    write: &Texture2dMipWrite<'_>,
+    gate: &parking_lot::MutexGuard<'_, ()>,
+) -> Result<(), TextureUploadError> {
+    profiling::scope!("asset::texture_write_mip_locked");
+    let Texture2dMipWrite {
+        queue,
+        gpu_queue_access_gate,
+        queue_access_mode,
+        texture,
+        mip_level,
+        width,
+        height,
+        format,
+        bytes,
+    } = *write;
+    write_texture_region_with_gate(
+        TextureRegionWrite {
+            queue,
+            gpu_queue_access_gate,
+            queue_access_mode,
+            destination: wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            width,
+            height,
+            depth_or_array_layers: 1,
+            format,
+            bytes,
+            label: "mip",
+        },
+        gate,
+    )
+}
+
 /// Descriptor for [`write_texture3d_volume_mip`]: one full 3D subresource write via [`wgpu::Queue::write_texture`].
 pub struct Texture3dVolumeMipWrite<'a> {
     /// Queue used for the texel copy.
@@ -304,6 +348,8 @@ pub struct Texture3dVolumeMipWrite<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this write.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination texture.
     pub texture: &'a wgpu::Texture,
     /// Mip level index.
@@ -328,6 +374,7 @@ pub fn write_texture3d_volume_mip(
     let Texture3dVolumeMipWrite {
         queue,
         gpu_queue_access_gate,
+        queue_access_mode,
         texture,
         mip_level,
         width,
@@ -339,6 +386,7 @@ pub fn write_texture3d_volume_mip(
     write_texture_region(TextureRegionWrite {
         queue,
         gpu_queue_access_gate,
+        queue_access_mode,
         destination: wgpu::TexelCopyTextureInfo {
             texture,
             mip_level,
@@ -354,6 +402,46 @@ pub fn write_texture3d_volume_mip(
     })
 }
 
+/// Writes one mip level of a 3D texture while the caller already holds the queue gate.
+pub fn write_texture3d_volume_mip_with_gate(
+    write: &Texture3dVolumeMipWrite<'_>,
+    gate: &parking_lot::MutexGuard<'_, ()>,
+) -> Result<(), TextureUploadError> {
+    profiling::scope!("asset::texture3d_write_volume_mip_locked");
+    let Texture3dVolumeMipWrite {
+        queue,
+        gpu_queue_access_gate,
+        queue_access_mode,
+        texture,
+        mip_level,
+        width,
+        height,
+        depth,
+        format,
+        bytes,
+    } = *write;
+    write_texture_region_with_gate(
+        TextureRegionWrite {
+            queue,
+            gpu_queue_access_gate,
+            queue_access_mode,
+            destination: wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            width,
+            height,
+            depth_or_array_layers: depth,
+            format,
+            bytes,
+            label: "3d mip",
+        },
+        gate,
+    )
+}
+
 /// Descriptor for [`write_cubemap_face_mip`]: one cubemap face x one mip (2D array layer).
 pub struct CubemapFaceMipWrite<'a> {
     /// Queue used for the texel copy.
@@ -361,6 +449,8 @@ pub struct CubemapFaceMipWrite<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this write.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination cubemap texture (`D2` array with six layers).
     pub texture: &'a wgpu::Texture,
     /// Mip level index.
@@ -383,6 +473,7 @@ pub fn write_cubemap_face_mip(write: &CubemapFaceMipWrite<'_>) -> Result<(), Tex
     let CubemapFaceMipWrite {
         queue,
         gpu_queue_access_gate,
+        queue_access_mode,
         texture,
         mip_level,
         face_layer,
@@ -394,6 +485,7 @@ pub fn write_cubemap_face_mip(write: &CubemapFaceMipWrite<'_>) -> Result<(), Tex
     write_texture_region(TextureRegionWrite {
         queue,
         gpu_queue_access_gate,
+        queue_access_mode,
         destination: wgpu::TexelCopyTextureInfo {
             texture,
             mip_level,
@@ -413,12 +505,58 @@ pub fn write_cubemap_face_mip(write: &CubemapFaceMipWrite<'_>) -> Result<(), Tex
     })
 }
 
+/// Writes one face x one mip of a cubemap while the caller already holds the queue gate.
+pub fn write_cubemap_face_mip_with_gate(
+    write: &CubemapFaceMipWrite<'_>,
+    gate: &parking_lot::MutexGuard<'_, ()>,
+) -> Result<(), TextureUploadError> {
+    profiling::scope!("asset::cubemap_write_face_mip_locked");
+    let CubemapFaceMipWrite {
+        queue,
+        gpu_queue_access_gate,
+        queue_access_mode,
+        texture,
+        mip_level,
+        face_layer,
+        width,
+        height,
+        format,
+        bytes,
+    } = *write;
+    write_texture_region_with_gate(
+        TextureRegionWrite {
+            queue,
+            gpu_queue_access_gate,
+            queue_access_mode,
+            destination: wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: face_layer,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            width,
+            height,
+            depth_or_array_layers: 1,
+            format,
+            bytes,
+            label: "cubemap mip",
+        },
+        gate,
+    )
+}
+
 /// Descriptor for a generic texture region write.
 pub(super) struct TextureRegionWrite<'a> {
     /// Queue used for the texel copy.
     pub queue: &'a wgpu::Queue,
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this write.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination texture subresource.
     pub destination: wgpu::TexelCopyTextureInfo<'a>,
     /// Logical width in texels.
@@ -433,6 +571,17 @@ pub(super) struct TextureRegionWrite<'a> {
     pub bytes: &'a [u8],
     /// Diagnostic label used in length mismatch errors.
     pub label: &'static str,
+}
+
+/// Validated region write data ready for queue submission.
+struct PreparedTextureRegionWrite<'a> {
+    queue: &'a wgpu::Queue,
+    gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    queue_access_mode: GpuQueueAccessMode,
+    destination: wgpu::TexelCopyTextureInfo<'a>,
+    bytes: &'a [u8],
+    layout: wgpu::TexelCopyBufferLayout,
+    size: wgpu::Extent3d,
 }
 
 /// Physical copy extent required by wgpu for a logical mip size.
@@ -467,6 +616,30 @@ pub(super) fn write_texture_region(
     write: TextureRegionWrite<'_>,
 ) -> Result<(), TextureUploadError> {
     profiling::scope!("asset::texture_write_region");
+    let prepared = prepare_texture_region_write(write)?;
+    let gpu_queue_access_gate = prepared.gpu_queue_access_gate;
+    let queue_access_mode = prepared.queue_access_mode;
+    let Some(_gate) = gpu_queue_access_gate.lock_for(queue_access_mode) else {
+        return Err(TextureUploadError::QueueAccessBusy);
+    };
+    submit_prepared_texture_region_write(prepared);
+    Ok(())
+}
+
+/// Writes a texture subresource while the caller already holds the queue gate.
+pub(super) fn write_texture_region_with_gate(
+    write: TextureRegionWrite<'_>,
+    _gate: &parking_lot::MutexGuard<'_, ()>,
+) -> Result<(), TextureUploadError> {
+    profiling::scope!("asset::texture_write_region_locked");
+    let prepared = prepare_texture_region_write(write)?;
+    submit_prepared_texture_region_write(prepared);
+    Ok(())
+}
+
+fn prepare_texture_region_write(
+    write: TextureRegionWrite<'_>,
+) -> Result<PreparedTextureRegionWrite<'_>, TextureUploadError> {
     let size = copy_extent_for_mip(
         write.format,
         write.width,
@@ -492,12 +665,21 @@ pub(super) fn write_texture_region(
         )));
     }
 
-    // Gate against submit and OpenXR queue-access calls that use the same Vulkan queue.
-    let _gate = write.gpu_queue_access_gate.lock();
+    Ok(PreparedTextureRegionWrite {
+        queue: write.queue,
+        gpu_queue_access_gate: write.gpu_queue_access_gate,
+        queue_access_mode: write.queue_access_mode,
+        destination: write.destination,
+        bytes: write.bytes,
+        layout,
+        size,
+    })
+}
+
+fn submit_prepared_texture_region_write(write: PreparedTextureRegionWrite<'_>) {
     write
         .queue
-        .write_texture(write.destination, write.bytes, layout, size);
-    Ok(())
+        .write_texture(write.destination, write.bytes, write.layout, write.size);
 }
 
 /// Builds a tight-copy layout and per-layer byte length for one mip.

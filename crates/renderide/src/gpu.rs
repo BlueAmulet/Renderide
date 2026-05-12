@@ -61,4 +61,4 @@ pub(crate) use vr_mirror::{VR_MIRROR_EYE_LAYER, VrMirrorBlitResources};
 // `crate::gpu::GpuQueueAccessGate`; both physically live under newer parent modules now.
 pub(crate) use profiling::frame_bracket;
 pub(crate) use profiling::frame_cpu_gpu_timing;
-pub(crate) use sync::queue_access_gate::GpuQueueAccessGate;
+pub(crate) use sync::queue_access_gate::{GpuQueueAccessGate, GpuQueueAccessMode};

@@ -27,6 +27,7 @@ impl RenderBackend {
         ipc: &mut Option<&mut DualQueueIpc>,
         normal_deadline: std::time::Instant,
         particle_deadline: std::time::Instant,
+        queue_access_mode: crate::gpu::GpuQueueAccessMode,
     ) -> AssetIntegrationDrainSummary {
         asset_uploads::drain_asset_tasks(
             &mut self.asset_transfers,
@@ -35,6 +36,7 @@ impl RenderBackend {
             ipc,
             normal_deadline,
             particle_deadline,
+            queue_access_mode,
         )
     }
 

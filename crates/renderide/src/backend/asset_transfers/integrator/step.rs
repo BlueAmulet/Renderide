@@ -11,6 +11,7 @@ use super::super::AssetTransferQueue;
 use super::super::cubemap_task::CubemapUploadTask;
 use super::super::mesh_task::MeshUploadTask;
 use super::super::texture_task::TextureUploadTask;
+use super::super::texture_task_common::TextureTaskGpu;
 use super::super::texture3d_task::Texture3dUploadTask;
 use super::gpu_context::AssetUploadGpuContext;
 
@@ -226,9 +227,12 @@ fn step_texture_upload_task(
     };
     task.step(
         asset,
-        gpu.device,
-        gpu.queue.as_ref(),
-        gpu.gpu_queue_access_gate,
+        TextureTaskGpu {
+            device: gpu.device,
+            queue: gpu.queue.as_ref(),
+            queue_access_gate: gpu.gpu_queue_access_gate,
+            queue_access_mode: gpu.queue_access_mode,
+        },
         shm,
         ipc,
     )
@@ -246,9 +250,12 @@ fn step_texture3d_upload_task(
     };
     task.step(
         asset,
-        gpu.device,
-        gpu.queue.as_ref(),
-        gpu.gpu_queue_access_gate,
+        TextureTaskGpu {
+            device: gpu.device,
+            queue: gpu.queue.as_ref(),
+            queue_access_gate: gpu.gpu_queue_access_gate,
+            queue_access_mode: gpu.queue_access_mode,
+        },
         shm,
         ipc,
     )
@@ -266,9 +273,12 @@ fn step_cubemap_upload_task(
     };
     task.step(
         asset,
-        gpu.device,
-        gpu.queue.as_ref(),
-        gpu.gpu_queue_access_gate,
+        TextureTaskGpu {
+            device: gpu.device,
+            queue: gpu.queue.as_ref(),
+            queue_access_gate: gpu.gpu_queue_access_gate,
+            queue_access_mode: gpu.queue_access_mode,
+        },
         shm,
         ipc,
     )

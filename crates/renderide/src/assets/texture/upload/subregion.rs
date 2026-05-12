@@ -86,6 +86,8 @@ struct TextureWriteSubregion<'a> {
     queue: &'a wgpu::Queue,
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`].
     gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this write.
+    queue_access_mode: crate::gpu::GpuQueueAccessMode,
     /// Destination texture.
     texture: &'a wgpu::Texture,
     /// Mip level index.
@@ -110,6 +112,7 @@ fn write_texture_subregion(w: TextureWriteSubregion<'_>) -> Result<(), TextureUp
     write_texture_region(TextureRegionWrite {
         queue: w.queue,
         gpu_queue_access_gate: w.gpu_queue_access_gate,
+        queue_access_mode: w.queue_access_mode,
         destination: wgpu::TexelCopyTextureInfo {
             texture: w.texture,
             mip_level: w.mip_level,
@@ -270,6 +273,7 @@ pub(super) fn try_write_texture2d_subregion(
     match write_texture_subregion(TextureWriteSubregion {
         queue: ctx.queue,
         gpu_queue_access_gate: ctx.gpu_queue_access_gate,
+        queue_access_mode: ctx.queue_access_mode,
         texture: ctx.texture,
         mip_level: 0,
         origin_x: rx,
