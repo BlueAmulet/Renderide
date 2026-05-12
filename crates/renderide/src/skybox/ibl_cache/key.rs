@@ -1,6 +1,5 @@
 //! IBL bake keys and scalar helper math.
 
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::gpu::GpuLimits;
@@ -21,20 +20,9 @@ pub(crate) fn clamp_face_size(face_size: u32, limits: &GpuLimits) -> u32 {
 /// Identity for one IBL bake.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) enum SkyboxIblKey {
-    /// Analytic procedural / gradient skybox material identity.
-    Analytic {
-        /// Active skybox material asset id.
-        material_asset_id: i32,
-        /// Material property generation; invalidates when host edits material props.
-        material_generation: u64,
-        /// Stable hash of the shader route stem.
-        route_hash: u64,
-        /// Destination cube face edge (clamped to device limits).
-        face_size: u32,
-    },
-    /// Host-uploaded cubemap material identity.
+    /// Host-uploaded cubemap identity.
     Cubemap {
-        /// Skybox material asset id when this source came from a material, or `-1` for direct probe sources.
+        /// Material asset id when this source came from a material, or `-1` for direct probe sources.
         material_asset_id: i32,
         /// Material property generation when this source came from a material.
         material_generation: u64,
@@ -53,32 +41,7 @@ pub(crate) enum SkyboxIblKey {
         /// Destination cube face edge.
         face_size: u32,
     },
-    /// Host-uploaded equirect Texture2D material identity.
-    Equirect {
-        /// Skybox material asset id when this source came from a material.
-        material_asset_id: i32,
-        /// Material property generation when this source came from a material.
-        material_generation: u64,
-        /// Stable hash of the shader route stem when this source came from a material.
-        route_hash: u64,
-        /// Source Texture2D asset id.
-        asset_id: i32,
-        /// Source GPU allocation generation.
-        allocation_generation: u64,
-        /// Source resident mip count.
-        mip_levels_resident: u32,
-        /// Source content generation; re-uploading the same mips re-bakes.
-        content_generation: u64,
-        /// Storage V-flip flag for the source texture.
-        storage_v_inverted: bool,
-        /// Bit-stable hash of `_FOV` material parameters.
-        fov_hash: u64,
-        /// Bit-stable hash of `_MainTex_ST` material parameters.
-        st_hash: u64,
-        /// Destination cube face edge.
-        face_size: u32,
-    },
-    /// Analytic constant-color identity.
+    /// Constant-color reflection-probe identity.
     SolidColor {
         /// Renderer-side identity for this color source.
         identity: u64,
@@ -106,32 +69,16 @@ impl SkyboxIblKey {
     /// Returns the destination face size for this bake.
     pub(super) fn face_size(&self) -> u32 {
         match *self {
-            Self::Analytic { face_size, .. }
-            | Self::Cubemap { face_size, .. }
-            | Self::Equirect { face_size, .. }
+            Self::Cubemap { face_size, .. }
             | Self::SolidColor { face_size, .. }
             | Self::RuntimeCubemap { face_size, .. } => face_size,
         }
-    }
-
-    /// Returns a stable renderer-side identity hash for the frame-global binding key.
-    #[cfg(test)]
-    pub(super) fn source_hash(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
     }
 }
 
 /// Builds a cache key for an active source using an already-clamped destination face size.
 pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKey {
     match source {
-        SkyboxIblSource::Analytic(src) => SkyboxIblKey::Analytic {
-            material_asset_id: src.material_asset_id,
-            material_generation: src.material_generation,
-            route_hash: src.route_hash,
-            face_size,
-        },
         SkyboxIblSource::Cubemap(src) => SkyboxIblKey::Cubemap {
             material_asset_id: src.material_asset_id,
             material_generation: src.material_generation,
@@ -141,19 +88,6 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
             mip_levels_resident: src.mip_levels_resident,
             content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
-            face_size,
-        },
-        SkyboxIblSource::Equirect(src) => SkyboxIblKey::Equirect {
-            material_asset_id: src.material_asset_id,
-            material_generation: src.material_generation,
-            route_hash: src.route_hash,
-            asset_id: src.asset_id,
-            allocation_generation: src.allocation_generation,
-            mip_levels_resident: src.mip_levels_resident,
-            content_generation: src.content_generation,
-            storage_v_inverted: src.storage_v_inverted,
-            fov_hash: hash_float4(&src.equirect_fov),
-            st_hash: hash_float4(&src.equirect_st),
             face_size,
         },
         SkyboxIblSource::SolidColor(src) => SkyboxIblKey::SolidColor {
@@ -173,7 +107,7 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
 
 /// Hashes four `f32`s by their bit patterns.
 fn hash_float4(values: &[f32; 4]) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for v in values {
         v.to_bits().hash(&mut hasher);
     }
@@ -253,31 +187,6 @@ mod tests {
         assert_eq!(convolve_sample_count(8), 1024);
     }
 
-    /// Analytic key invariants: identity bits change the source hash.
-    #[test]
-    fn analytic_key_hash_changes_with_identity_fields() {
-        let a = SkyboxIblKey::Analytic {
-            material_asset_id: 1,
-            material_generation: 2,
-            route_hash: 3,
-            face_size: 256,
-        };
-        let b = SkyboxIblKey::Analytic {
-            material_asset_id: 1,
-            material_generation: 2,
-            route_hash: 3,
-            face_size: 128,
-        };
-        let c = SkyboxIblKey::Analytic {
-            material_asset_id: 1,
-            material_generation: 9,
-            route_hash: 3,
-            face_size: 256,
-        };
-        assert_ne!(a.source_hash(), b.source_hash());
-        assert_ne!(a.source_hash(), c.source_hash());
-    }
-
     /// Cubemap key invariants: residency growth and face size resize both invalidate.
     #[test]
     fn cubemap_key_invalidates_on_residency_or_face_change() {
@@ -301,30 +210,6 @@ mod tests {
         assert_ne!(base, material_changed);
     }
 
-    /// Equirect key invariants: FOV / ST hash inputs invalidate the bake.
-    #[test]
-    fn equirect_key_invalidates_on_param_changes() {
-        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
-        let altered_fov = equirect_key(1, 3, 1, 5, [2.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
-        let altered_st = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [2.0, 1.0, 0.0, 0.0]);
-        assert_ne!(base, altered_fov);
-        assert_ne!(base, altered_st);
-        let altered_content = equirect_key(1, 3, 2, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
-        assert_ne!(base, altered_content);
-    }
-
-    /// Equirect allocation and material identity invalidate same-id sources.
-    #[test]
-    fn equirect_key_invalidates_on_allocation_or_material_change() {
-        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
-        let reallocated_same_upload_generation =
-            equirect_key(2, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
-        let material_changed = equirect_key(1, 3, 1, 6, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
-
-        assert_ne!(base, reallocated_same_upload_generation);
-        assert_ne!(base, material_changed);
-    }
-
     fn cubemap_key(
         allocation_generation: u64,
         content_generation: u64,
@@ -342,29 +227,6 @@ mod tests {
             content_generation,
             storage_v_inverted: false,
             face_size,
-        }
-    }
-
-    fn equirect_key(
-        allocation_generation: u64,
-        mip_levels_resident: u32,
-        content_generation: u64,
-        material_generation: u64,
-        fov: [f32; 4],
-        st: [f32; 4],
-    ) -> SkyboxIblKey {
-        SkyboxIblKey::Equirect {
-            material_asset_id: 21,
-            material_generation,
-            route_hash: 99,
-            asset_id: 9,
-            allocation_generation,
-            mip_levels_resident,
-            content_generation,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&fov),
-            st_hash: hash_float4(&st),
-            face_size: 256,
         }
     }
 }

@@ -19,22 +19,18 @@ pub(super) struct ProjectionPipeline {
     layout: wgpu::BindGroupLayout,
 }
 
-/// Distinguishes the three SH2 projection compute pipelines.
+/// Distinguishes SH2 projection compute pipelines.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) enum ProjectionPipelineKind {
     Cubemap,
-    Equirect,
-    SkyParams,
 }
 
 impl ProjectionPipelineKind {
-    pub(super) const ALL: [Self; 3] = [Self::Cubemap, Self::Equirect, Self::SkyParams];
+    pub(super) const ALL: [Self; 1] = [Self::Cubemap];
 
     pub(super) const fn stem(self) -> &'static str {
         match self {
             Self::Cubemap => "sh2_project_cubemap",
-            Self::Equirect => "sh2_project_equirect",
-            Self::SkyParams => "sh2_project_sky_params",
         }
     }
 }
@@ -139,16 +135,9 @@ fn projection_layout_entries(stem: &str) -> Vec<wgpu::BindGroupLayoutEntry> {
             count: None,
         },
     ];
-    match stem {
-        "sh2_project_cubemap" => {
-            entries.push(texture_layout_entry(1, wgpu::TextureViewDimension::Cube));
-            entries.push(sampler_layout_entry(2));
-        }
-        "sh2_project_equirect" => {
-            entries.push(texture_layout_entry(1, wgpu::TextureViewDimension::D2));
-            entries.push(sampler_layout_entry(2));
-        }
-        _ => {}
+    if stem == "sh2_project_cubemap" {
+        entries.push(texture_layout_entry(1, wgpu::TextureViewDimension::Cube));
+        entries.push(sampler_layout_entry(2));
     }
     entries.sort_by_key(|entry| entry.binding);
     entries

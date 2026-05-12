@@ -1,4 +1,4 @@
-//! Analytic skybox sampling shared by generated environment and SH2 compute passes.
+//! Parameter-driven skybox sampling used by generated cubemap compute passes.
 
 #define_import_path renderide::skybox::evaluator
 

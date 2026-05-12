@@ -21,16 +21,6 @@ fn cubemap_source_key_invalidates_on_storage_orientation() {
 }
 
 #[test]
-fn equirect_source_key_invalidates_on_allocation_or_material_change() {
-    let base = equirect_key(1, 5);
-    let reallocated_same_upload_generation = equirect_key(2, 5);
-    let material_changed = equirect_key(1, 6);
-
-    assert_ne!(base, reallocated_same_upload_generation);
-    assert_ne!(base, material_changed);
-}
-
-#[test]
 fn completed_cache_prune_retains_touched_sources_when_over_budget() {
     let mut system = ReflectionProbeSh2System::new();
     let retained = cubemap_key(99, 1, 1);
@@ -102,25 +92,5 @@ fn cubemap_key_with_storage(
         content_generation: 1,
         storage_v_inverted,
         sample_size: DEFAULT_SAMPLE_SIZE,
-    }
-}
-
-fn equirect_key(allocation_generation: u64, material_generation: u64) -> Sh2SourceKey {
-    let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
-    params.color0 = [1.0, 1.0, 0.0, 0.0];
-    params.color1 = [1.0, 1.0, 0.0, 0.0];
-    Sh2SourceKey::EquirectTexture2D {
-        render_space_id: 7,
-        material_asset_id: 21,
-        material_generation,
-        route_hash: 99,
-        asset_id: 11,
-        allocation_generation,
-        width: 512,
-        height: 256,
-        resident_mips: 1,
-        content_generation: 1,
-        sample_size: DEFAULT_SAMPLE_SIZE,
-        projection: Projection360EquirectKey::from_params(&params),
     }
 }

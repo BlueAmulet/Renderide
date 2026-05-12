@@ -12,12 +12,10 @@ use super::sampler::create_linear_clamp_sampler;
 /// Identifier for one of the IBL compute pipeline slots.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum PipelineSlot {
-    /// Analytic procedural / gradient mip-0 producer.
+    /// Parameter-driven mip-0 producer used for constant-color probe sources.
     Analytic,
     /// Cubemap mip-0 producer.
     Cube,
-    /// Equirect Texture2D mip-0 producer.
-    Equirect,
     /// Source-pyramid downsample pass.
     Downsample,
     /// GGX convolve pass.
@@ -30,7 +28,6 @@ impl PipelineSlot {
         match self {
             Self::Analytic => "skybox_bake_params",
             Self::Cube => "skybox_mip0_cube_params",
-            Self::Equirect => "skybox_mip0_equirect_params",
             Self::Downsample => "skybox_ibl_downsample",
             Self::Convolve => "skybox_ibl_convolve_params",
         }
@@ -42,7 +39,6 @@ impl PipelineSlot {
 pub(super) struct PipelineStore {
     analytic: Option<ComputePipeline>,
     cube: Option<ComputePipeline>,
-    equirect: Option<ComputePipeline>,
     downsample: Option<ComputePipeline>,
     convolve: Option<ComputePipeline>,
     sampler: Option<Arc<wgpu::Sampler>>,
@@ -66,12 +62,6 @@ impl PipelineStore {
                 stem,
                 &mip0_input_layout_entries(wgpu::TextureViewDimension::Cube),
             ),
-            PipelineSlot::Equirect => ensure_pipeline(
-                &mut self.equirect,
-                device,
-                stem,
-                &mip0_input_layout_entries(wgpu::TextureViewDimension::D2),
-            ),
             PipelineSlot::Downsample => ensure_pipeline(
                 &mut self.downsample,
                 device,
@@ -93,7 +83,6 @@ impl PipelineStore {
         for slot in [
             PipelineSlot::Analytic,
             PipelineSlot::Cube,
-            PipelineSlot::Equirect,
             PipelineSlot::Downsample,
             PipelineSlot::Convolve,
         ] {
@@ -108,7 +97,6 @@ impl PipelineStore {
         let slot_ref = match slot {
             PipelineSlot::Analytic => self.analytic.as_ref(),
             PipelineSlot::Cube => self.cube.as_ref(),
-            PipelineSlot::Equirect => self.equirect.as_ref(),
             PipelineSlot::Downsample => self.downsample.as_ref(),
             PipelineSlot::Convolve => self.convolve.as_ref(),
         };

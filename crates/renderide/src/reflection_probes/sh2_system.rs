@@ -10,10 +10,11 @@ mod task_pass;
 mod tests;
 
 pub(super) use gpu_source::GpuSh2Source;
+#[cfg(test)]
+pub(super) use source_keys::SkyParamMode;
 pub(super) use source_keys::{
     CubemapResidency, CubemapSourceMaterialIdentity, DEFAULT_SAMPLE_SIZE,
-    MAX_PENDING_JOB_AGE_FRAMES, Projection360EquirectKey, SH2_OUTPUT_BYTES, Sh2ProjectParams,
-    Sh2SourceKey, SkyParamMode,
+    MAX_PENDING_JOB_AGE_FRAMES, SH2_OUTPUT_BYTES, Sh2ProjectParams, Sh2SourceKey,
 };
 
 use std::collections::VecDeque;
@@ -27,7 +28,6 @@ use super::source_resolution::Sh2ResolvedSource;
 use crate::backend::AssetTransferQueue;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
-use crate::materials::MaterialSystem;
 use crate::profiling;
 use crate::reflection_probes::specular::RuntimeReflectionProbeCaptureStore;
 use crate::scene::SceneCoordinator;
@@ -119,7 +119,6 @@ impl ReflectionProbeSh2System {
         &mut self,
         shm: &mut SharedMemoryAccessor,
         scene: &SceneCoordinator,
-        materials: &MaterialSystem,
         assets: &AssetTransferQueue,
         captures: &RuntimeReflectionProbeCaptureStore,
         data: &FrameSubmitData,
@@ -134,7 +133,6 @@ impl ReflectionProbeSh2System {
                 shm,
                 Sh2TaskSourceContext {
                     scene,
-                    materials,
                     assets,
                     captures,
                     render_space_id: update.id,
@@ -243,22 +241,6 @@ fn sh2_source_from_ibl_source(
     source: &SkyboxIblSource,
 ) -> (Sh2SourceKey, Sh2ResolvedSource) {
     match source {
-        SkyboxIblSource::Analytic(src) => {
-            let mut params = src.params;
-            params.sample_size = DEFAULT_SAMPLE_SIZE;
-            (
-                Sh2SourceKey::SkyParams {
-                    render_space_id,
-                    material_asset_id: src.material_asset_id,
-                    material_generation: src.material_generation,
-                    sample_size: DEFAULT_SAMPLE_SIZE,
-                    route_hash: src.route_hash,
-                },
-                Sh2ResolvedSource::Gpu(GpuSh2Source::SkyParams {
-                    params: Box::new(params),
-                }),
-            )
-        }
         SkyboxIblSource::Cubemap(src) => {
             let identity = CubemapSourceMaterialIdentity {
                 material_asset_id: src.material_asset_id,
@@ -277,32 +259,6 @@ fn sh2_source_from_ibl_source(
                 Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
                     asset_id: src.asset_id,
                     storage_v_inverted: src.storage_v_inverted,
-                }),
-            )
-        }
-        SkyboxIblSource::Equirect(src) => {
-            let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
-            params.color0 = src.equirect_fov;
-            params.color1 = src.equirect_st;
-            params.scalars[0] = if src.storage_v_inverted { 1.0 } else { 0.0 };
-            (
-                Sh2SourceKey::EquirectTexture2D {
-                    render_space_id,
-                    material_asset_id: src.material_asset_id,
-                    material_generation: src.material_generation,
-                    route_hash: src.route_hash,
-                    asset_id: src.asset_id,
-                    allocation_generation: src.allocation_generation,
-                    width: src.width,
-                    height: src.height,
-                    resident_mips: src.mip_levels_resident,
-                    content_generation: src.content_generation,
-                    sample_size: DEFAULT_SAMPLE_SIZE,
-                    projection: Projection360EquirectKey::from_params(&params),
-                },
-                Sh2ResolvedSource::Gpu(GpuSh2Source::EquirectTexture2D {
-                    asset_id: src.asset_id,
-                    params: Box::new(params),
                 }),
             )
         }

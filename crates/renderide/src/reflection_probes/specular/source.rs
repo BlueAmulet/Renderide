@@ -5,15 +5,12 @@ use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
     REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
 };
-use crate::materials::MaterialSystem;
 use crate::scene::{
-    ReflectionProbeEntry, RenderSpaceId, SceneCoordinator, reflection_probe_skybox_only,
-    reflection_probe_use_box_projection,
+    ReflectionProbeEntry, RenderSpaceId, SceneCoordinator, reflection_probe_use_box_projection,
 };
 use crate::shared::{ReflectionProbeClear, ReflectionProbeState, ReflectionProbeType, RenderSH2};
 use crate::skybox::specular::{
-    CubemapIblSource, RuntimeCubemapIblSource, SkyboxIblSource, resolve_skybox_material_ibl_source,
-    solid_color_ibl_source,
+    CubemapIblSource, RuntimeCubemapIblSource, SkyboxIblSource, solid_color_ibl_source,
 };
 use crate::world_mesh::culling::world_aabb_from_local_bounds;
 
@@ -24,9 +21,7 @@ use super::selection::{
 
 pub(super) fn resolve_probe_source(
     space_id: RenderSpaceId,
-    skybox_material_asset_id: i32,
     probe: &ReflectionProbeEntry,
-    materials: &MaterialSystem,
     assets: &AssetTransferQueue,
     captures: &RuntimeReflectionProbeCaptureStore,
 ) -> Option<SkyboxIblSource> {
@@ -43,9 +38,6 @@ pub(super) fn resolve_probe_source(
     }
     if state.r#type == ReflectionProbeType::Baked {
         return resolve_baked_probe_source(state, assets);
-    }
-    if reflection_probe_skybox_only(state.flags) && skybox_material_asset_id >= 0 {
-        return resolve_skybox_material_ibl_source(skybox_material_asset_id, materials, assets);
     }
     if state.r#type == ReflectionProbeType::OnChanges {
         return resolve_runtime_capture_source(space_id, probe, captures);
@@ -232,6 +224,26 @@ mod tests {
         };
 
         assert!(resolve_baked_probe_source(state, &assets).is_none());
+    }
+
+    #[test]
+    fn missing_onchanges_capture_is_not_a_specular_source() {
+        let assets = AssetTransferQueue::new();
+        let captures = RuntimeReflectionProbeCaptureStore::default();
+        let probe = ReflectionProbeEntry {
+            renderable_index: 5,
+            transform_id: 1,
+            state: ReflectionProbeState {
+                intensity: 1.0,
+                flags: 0b001,
+                r#type: ReflectionProbeType::OnChanges,
+                ..ReflectionProbeState::default()
+            },
+        };
+
+        let source = resolve_probe_source(RenderSpaceId(7), &probe, &assets, &captures);
+
+        assert!(source.is_none());
     }
 
     #[test]

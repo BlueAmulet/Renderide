@@ -11,8 +11,8 @@ use crate::skybox::specular::{SkyboxIblSource, solid_color_params};
 
 use super::encode::{
     AnalyticEncodeContext, ConvolveEncodeContext, CubeEncodeContext, DownsampleEncodeContext,
-    EquirectEncodeContext, RuntimeCubeEncodeContext, encode_analytic_mip0, encode_convolve_mips,
-    encode_cube_mip0, encode_downsample_mips, encode_equirect_mip0, encode_runtime_cube_mip0,
+    RuntimeCubeEncodeContext, encode_analytic_mip0, encode_convolve_mips, encode_cube_mip0,
+    encode_downsample_mips, encode_runtime_cube_mip0,
 };
 use super::errors::SkyboxIblBakeError;
 use super::key::{SkyboxIblKey, mip_levels_for_edge, source_max_lod};
@@ -248,41 +248,10 @@ impl SkyboxIblCache {
         resources: &mut PendingBakeResources,
     ) -> Result<(), SkyboxIblBakeError> {
         match source {
-            SkyboxIblSource::Analytic(src) => {
-                let pipeline = self.pipelines.get(PipelineSlot::Analytic)?;
-                encode_analytic_mip0(
-                    AnalyticEncodeContext {
-                        device: ctx.gpu.device(),
-                        encoder: ctx.encoder,
-                        pipeline,
-                        texture: ctx.texture,
-                        face_size: ctx.face_size,
-                        params: &src.params,
-                        profiler: ctx.profiler,
-                    },
-                    resources,
-                );
-            }
             SkyboxIblSource::Cubemap(src) => {
                 let pipeline = self.pipelines.get(PipelineSlot::Cube)?;
                 encode_cube_mip0(
                     CubeEncodeContext {
-                        device: ctx.gpu.device(),
-                        encoder: ctx.encoder,
-                        pipeline,
-                        texture: ctx.texture,
-                        face_size: ctx.face_size,
-                        src,
-                        sampler: ctx.sampler,
-                        profiler: ctx.profiler,
-                    },
-                    resources,
-                );
-            }
-            SkyboxIblSource::Equirect(src) => {
-                let pipeline = self.pipelines.get(PipelineSlot::Equirect)?;
-                encode_equirect_mip0(
-                    EquirectEncodeContext {
                         device: ctx.gpu.device(),
                         encoder: ctx.encoder,
                         pipeline,

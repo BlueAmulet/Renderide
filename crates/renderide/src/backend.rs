@@ -19,7 +19,6 @@ mod frame_resource_manager;
 pub(crate) mod gpu_jobs;
 pub(crate) mod graph;
 mod light_gpu;
-pub(crate) mod material_property_reader;
 mod per_draw_resources;
 mod per_view_resource_map;
 mod view_resource_registry;

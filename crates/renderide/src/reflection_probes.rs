@@ -13,8 +13,7 @@ use sh2_math::constant_color_sh2;
 use sh2_system::SkyParamMode;
 use sh2_system::{
     CubemapResidency, CubemapSourceMaterialIdentity, DEFAULT_SAMPLE_SIZE, GpuSh2Source,
-    MAX_PENDING_JOB_AGE_FRAMES, Projection360EquirectKey, SH2_OUTPUT_BYTES, Sh2ProjectParams,
-    Sh2SourceKey,
+    MAX_PENDING_JOB_AGE_FRAMES, SH2_OUTPUT_BYTES, Sh2ProjectParams, Sh2SourceKey,
 };
 
 pub(crate) use sh2_system::ReflectionProbeSh2System;

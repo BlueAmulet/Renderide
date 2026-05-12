@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::profiling::GpuProfilerHandle;
 use crate::skybox::params::SkyboxEvaluatorParams;
-use crate::skybox::specular::{CubemapIblSource, EquirectIblSource, RuntimeCubemapIblSource};
+use crate::skybox::specular::{CubemapIblSource, RuntimeCubemapIblSource};
 
 use super::bind_groups::{
     build_input_output_bind_group, build_sampled_bind_group, build_storage_bind_group,
@@ -25,18 +25,6 @@ struct Mip0CubeParams {
     src_face_size: u32,
     storage_v_inverted: u32,
     _pad0: u32,
-}
-
-/// Uniform payload for the equirect mip-0 producer.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct Mip0EquirectParams {
-    dst_size: u32,
-    storage_v_inverted: u32,
-    _pad0: u32,
-    _pad1: u32,
-    fov: [f32; 4],
-    st: [f32; 4],
 }
 
 /// Uniform payload for one GGX convolve mip dispatch.
@@ -74,7 +62,7 @@ pub(super) struct AnalyticEncodeContext<'a> {
     pub(super) profiler: Option<&'a GpuProfilerHandle>,
 }
 
-/// Encodes mip 0 from analytic procedural / gradient sky parameters.
+/// Encodes mip 0 from evaluator parameters for constant-color probe sources.
 pub(super) fn encode_analytic_mip0(
     ctx: AnalyticEncodeContext<'_>,
     resources: &mut PendingBakeResources,
@@ -206,60 +194,6 @@ pub(super) fn encode_runtime_cube_mip0(
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
     resources.textures.push(ctx.src.texture);
-    resources.source_views.push(ctx.src.view);
-}
-
-/// Inputs for [`encode_equirect_mip0`].
-pub(super) struct EquirectEncodeContext<'a> {
-    pub(super) device: &'a wgpu::Device,
-    pub(super) encoder: &'a mut wgpu::CommandEncoder,
-    pub(super) pipeline: &'a ComputePipeline,
-    pub(super) texture: &'a wgpu::Texture,
-    pub(super) face_size: u32,
-    pub(super) src: EquirectIblSource,
-    pub(super) sampler: &'a wgpu::Sampler,
-    pub(super) profiler: Option<&'a GpuProfilerHandle>,
-}
-
-/// Encodes mip 0 by resampling an equirect Texture2D source.
-pub(super) fn encode_equirect_mip0(
-    ctx: EquirectEncodeContext<'_>,
-    resources: &mut PendingBakeResources,
-) {
-    profiling::scope!("skybox_ibl::encode_mip0_equirect");
-    let params = Mip0EquirectParams {
-        dst_size: ctx.face_size,
-        storage_v_inverted: u32::from(ctx.src.storage_v_inverted),
-        _pad0: 0,
-        _pad1: 0,
-        fov: ctx.src.equirect_fov,
-        st: ctx.src.equirect_st,
-    };
-    let params_buffer = make_uniform_buffer(ctx.device, "skybox_ibl equirect mip0 params", &params);
-    crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_equirect_mip0_params_buffer");
-    let mip0_storage = create_mip_storage_view(ctx.texture, 0);
-    let bind_group = build_sampled_bind_group(
-        ctx.device,
-        &ctx.pipeline.layout,
-        "skybox_ibl equirect mip0 bind group",
-        &params_buffer,
-        ctx.src.view.as_ref(),
-        ctx.sampler,
-        &mip0_storage,
-    );
-    crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_equirect_mip0_bind_group");
-    dispatch_mip0_pass(
-        ctx.encoder,
-        ctx.pipeline,
-        &bind_group,
-        ctx.face_size,
-        "skybox_ibl equirect mip0",
-        ctx.profiler,
-        "skybox_ibl::mip0_equirect",
-    );
-    resources.buffers.push(params_buffer);
-    resources.bind_groups.push(bind_group);
-    resources.texture_views.push(mip0_storage);
     resources.source_views.push(ctx.src.view);
 }
 

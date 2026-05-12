@@ -7,7 +7,6 @@ use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT, ReflectionProbeSpecularResources,
 };
 use crate::gpu::GpuContext;
-use crate::materials::MaterialSystem;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::skybox::ibl_cache::{
     SkyboxIblCache, SkyboxIblKey, build_key, clamp_face_size, mip_extent, mip_levels_for_edge,
@@ -33,8 +32,6 @@ pub(crate) struct ReflectionProbeSpecularMaintainParams<'a> {
     pub(crate) gpu: &'a mut GpuContext,
     /// Scene snapshot containing render spaces and reflection-probe entries.
     pub(crate) scene: &'a SceneCoordinator,
-    /// Material registry used to resolve skybox material sources.
-    pub(crate) materials: &'a MaterialSystem,
     /// Asset queues and pools used to resolve uploaded cubemaps.
     pub(crate) assets: &'a AssetTransferQueue,
     /// Render context used for reflection-probe world transform lookup.
@@ -149,14 +146,9 @@ impl ReflectionProbeSpecularSystem {
                             renderable_index: probe.renderable_index,
                         });
                 }
-                let Some(source) = resolve_probe_source(
-                    space_id,
-                    space.skybox_material_asset_id(),
-                    probe,
-                    params.materials,
-                    params.assets,
-                    &self.captures,
-                ) else {
+                let Some(source) =
+                    resolve_probe_source(space_id, probe, params.assets, &self.captures)
+                else {
                     continue;
                 };
                 let key = build_key(&source, face_size);
@@ -403,10 +395,7 @@ fn specular_ibl_key_matches_closed_spaces(
     spaces: &HashSet<RenderSpaceId>,
 ) -> bool {
     match key {
-        SkyboxIblKey::Analytic { .. }
-        | SkyboxIblKey::Cubemap { .. }
-        | SkyboxIblKey::Equirect { .. }
-        | SkyboxIblKey::SolidColor { .. } => false,
+        SkyboxIblKey::Cubemap { .. } | SkyboxIblKey::SolidColor { .. } => false,
         SkyboxIblKey::RuntimeCubemap {
             render_space_id, ..
         } => spaces.contains(&RenderSpaceId(*render_space_id)),

@@ -3,11 +3,14 @@ use glam::Vec3;
 use crate::shared::RenderSH2;
 
 #[cfg(test)]
-use super::{Projection360EquirectKey, Sh2ProjectParams, SkyParamMode};
-#[cfg(test)]
-use crate::skybox::params::{DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV};
+use super::{Sh2ProjectParams, SkyParamMode};
 #[cfg(test)]
 use glam::Vec4;
+
+#[cfg(test)]
+const PROJECTION360_DEFAULT_FOV: [f32; 4] = [std::f32::consts::TAU, std::f32::consts::PI, 0.0, 0.0];
+#[cfg(test)]
+const DEFAULT_MAIN_TEX_ST: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 
 /// Bit pattern for a packed float4.
 pub(super) fn f32x4_bits(v: [f32; 4]) -> [u32; 4] {
@@ -591,26 +594,6 @@ mod tests {
         assert!((visible_uv[0] - opposite_uv[0]).abs() < 1e-6);
         assert!((visible_uv[1] - opposite_uv[1]).abs() < 1e-6);
         assert!((visible_uv[0] - direct_uv[0]).abs() > 0.25);
-    }
-
-    #[test]
-    fn projection360_fov_st_and_storage_affect_equirect_source_key() {
-        let mut base = Sh2ProjectParams::empty(SkyParamMode::Procedural);
-        base.color0 = PROJECTION360_DEFAULT_FOV;
-        base.color1 = DEFAULT_MAIN_TEX_ST;
-        base.scalars = [0.0, 0.0, 0.0, 0.0];
-        let base_key = Projection360EquirectKey::from_params(&base);
-
-        let mut fov = base;
-        fov.color0[2] = 0.125;
-        let mut st = base;
-        st.color1[2] = 0.25;
-        let mut storage = base;
-        storage.scalars[0] = 1.0;
-
-        assert_ne!(base_key, Projection360EquirectKey::from_params(&fov));
-        assert_ne!(base_key, Projection360EquirectKey::from_params(&st));
-        assert_ne!(base_key, Projection360EquirectKey::from_params(&storage));
     }
 
     #[test]

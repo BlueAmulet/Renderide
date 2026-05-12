@@ -10,7 +10,7 @@ use crate::reflection_probes::specular::{
 };
 use crate::scene::{
     ReflectionProbeOnChangesRenderRequest, RenderSpaceId, SceneCoordinator,
-    changed_probe_completion, reflection_probe_skybox_only,
+    changed_probe_completion,
 };
 use crate::shared::{
     ReflectionProbeClear, ReflectionProbeState, ReflectionProbeTimeSlicingMode, RenderingContext,
@@ -191,9 +191,7 @@ fn start_onchanges_reflection_probe_capture(
     let probe = space.reflection_probes().get(probe_index).ok_or(
         ReflectionProbeBakeError::MissingProbe(request.renderable_index),
     )?;
-    if probe.state.clear_flags == ReflectionProbeClear::Color
-        || reflection_probe_skybox_only(probe.state.flags)
-    {
+    if probe.state.clear_flags == ReflectionProbeClear::Color {
         return Ok(OnChangesCaptureStart::ImmediateComplete);
     }
     if probe.state.r#type != crate::shared::ReflectionProbeType::OnChanges {

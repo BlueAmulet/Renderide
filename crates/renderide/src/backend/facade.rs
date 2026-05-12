@@ -284,7 +284,6 @@ impl RenderBackend {
         self.reflection_probes.answer_sh2_frame_submit_tasks(
             shm,
             scene,
-            &self.materials,
             &self.asset_transfers,
             data,
         );
@@ -315,7 +314,6 @@ impl RenderBackend {
         let resources = self.reflection_probes.maintain_specular_jobs(
             gpu,
             scene,
-            &self.materials,
             &self.asset_transfers,
             render_context,
             reflection_probe_sh2_enabled,

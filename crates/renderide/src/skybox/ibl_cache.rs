@@ -1,8 +1,7 @@
 //! Unified IBL bake cache for specular reflection sources.
 //!
-//! Owns one in-flight bake job tracker, three lazily-built mip-0 producer pipelines (analytic
-//! procedural / gradient skies, host cubemaps, and Projection360 equirect Texture2Ds), one
-//! source-pyramid downsample pipeline, and one GGX convolve pipeline. For each new active
+//! Owns one in-flight bake job tracker, mip-0 producer pipelines for constant colors and cubemaps,
+//! one source-pyramid downsample pipeline, and one GGX convolve pipeline. For each new active
 //! reflection source the cache:
 //!
 //! 1. Allocates a source Rgba16Float cubemap and a filtered output cubemap with full mip chains.

@@ -4,7 +4,6 @@ use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::ReflectionProbeSpecularResources;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
-use crate::materials::MaterialSystem;
 use crate::reflection_probes::ReflectionProbeSh2System;
 use crate::reflection_probes::specular::{
     ReflectionProbeFrameSelection, ReflectionProbeSpecularMaintainParams,
@@ -44,13 +43,12 @@ impl ReflectionProbeServices {
         &mut self,
         shm: &mut SharedMemoryAccessor,
         scene: &SceneCoordinator,
-        materials: &MaterialSystem,
         asset_transfers: &AssetTransferQueue,
         data: &FrameSubmitData,
     ) {
         let captures = self.specular.capture_store();
         self.sh2
-            .answer_frame_submit_tasks(shm, scene, materials, asset_transfers, captures, data);
+            .answer_frame_submit_tasks(shm, scene, asset_transfers, captures, data);
     }
 
     /// Advances nonblocking SH2 GPU jobs and schedules queued projection work.
@@ -67,7 +65,6 @@ impl ReflectionProbeServices {
         &mut self,
         gpu: &mut GpuContext,
         scene: &SceneCoordinator,
-        materials: &MaterialSystem,
         asset_transfers: &AssetTransferQueue,
         render_context: RenderingContext,
         reflection_probe_sh2_enabled: bool,
@@ -76,7 +73,6 @@ impl ReflectionProbeServices {
             .maintain(ReflectionProbeSpecularMaintainParams {
                 gpu,
                 scene,
-                materials,
                 assets: asset_transfers,
                 render_context,
                 sh2_system: &mut self.sh2,

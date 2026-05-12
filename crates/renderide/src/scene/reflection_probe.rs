@@ -198,9 +198,7 @@ pub(crate) fn drain_reflection_probe_render_changes(
                 .push(changed_probe_completion(space.id.0, task.unique_id, true));
             continue;
         };
-        if entry.state.clear_flags == crate::shared::ReflectionProbeClear::Color
-            || reflection_probe_skybox_only(entry.state.flags)
-        {
+        if entry.state.clear_flags == crate::shared::ReflectionProbeClear::Color {
             out.completed
                 .push(changed_probe_completion(space.id.0, task.unique_id, false));
         } else if entry.state.r#type == ReflectionProbeType::OnChanges {
@@ -276,14 +274,18 @@ mod tests {
     }
 
     #[test]
-    fn changed_skybox_probe_drains_completion_result() {
-        let mut space = RenderSpaceState::default();
+    fn changed_skybox_onchanges_probe_queues_capture_request() {
+        let mut space = RenderSpaceState {
+            id: crate::scene::RenderSpaceId(12),
+            ..RenderSpaceState::default()
+        };
         space.reflection_probes.push(ReflectionProbeEntry {
             renderable_index: 0,
             transform_id: 1,
             state: ReflectionProbeState {
                 renderable_index: 0,
                 flags: 0b001,
+                r#type: ReflectionProbeType::OnChanges,
                 ..ReflectionProbeState::default()
             },
         });
@@ -296,9 +298,15 @@ mod tests {
 
         let results = drain_reflection_probe_render_changes(&mut space);
 
-        assert_eq!(results.completed.len(), 1);
-        assert_eq!(results.completed[0].render_probe_unique_id, 77);
-        assert!(results.scene_captures.is_empty());
+        assert!(results.completed.is_empty());
+        assert_eq!(
+            results.scene_captures,
+            vec![ReflectionProbeOnChangesRenderRequest {
+                render_space_id: 12,
+                renderable_index: 0,
+                unique_id: 77,
+            }]
+        );
         assert!(space.pending_reflection_probe_render_changes.is_empty());
     }
 
@@ -335,6 +343,38 @@ mod tests {
                 unique_id: 88,
             }]
         );
+    }
+
+    #[test]
+    fn changed_color_probe_returns_immediate_completion() {
+        let mut space = RenderSpaceState {
+            id: crate::scene::RenderSpaceId(12),
+            ..RenderSpaceState::default()
+        };
+        space.reflection_probes.push(ReflectionProbeEntry {
+            renderable_index: 0,
+            transform_id: 1,
+            state: ReflectionProbeState {
+                renderable_index: 0,
+                clear_flags: crate::shared::ReflectionProbeClear::Color,
+                r#type: ReflectionProbeType::OnChanges,
+                ..ReflectionProbeState::default()
+            },
+        });
+        space
+            .pending_reflection_probe_render_changes
+            .push(ReflectionProbeChangeRenderTask {
+                renderable_index: 0,
+                unique_id: 99,
+            });
+
+        let results = drain_reflection_probe_render_changes(&mut space);
+
+        assert_eq!(results.completed.len(), 1);
+        assert_eq!(results.completed[0].render_space_id, 12);
+        assert_eq!(results.completed[0].render_probe_unique_id, 99);
+        assert_eq!(results.completed[0].require_reset, 0);
+        assert!(results.scene_captures.is_empty());
     }
 
     #[test]

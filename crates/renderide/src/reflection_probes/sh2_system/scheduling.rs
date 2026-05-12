@@ -95,12 +95,6 @@ impl ReflectionProbeSh2System {
             } => self
                 .schedule_cubemap_source(gpu, assets, key, asset_id, storage_v_inverted, pipeline)
                 .map(ScheduleSourceOutcome::Submitted),
-            GpuSh2Source::EquirectTexture2D { asset_id, params } => self
-                .schedule_equirect_source(gpu, assets, key, asset_id, params.as_ref(), pipeline)
-                .map(ScheduleSourceOutcome::Submitted),
-            GpuSh2Source::SkyParams { params } => self
-                .schedule_sky_params_source(gpu, key, params.as_ref(), pipeline)
-                .map(ScheduleSourceOutcome::Submitted),
             GpuSh2Source::RuntimeCubemap { texture, view } => self
                 .schedule_runtime_cubemap_source(gpu, key, texture, view, pipeline)
                 .map(ScheduleSourceOutcome::Submitted),
@@ -140,66 +134,6 @@ impl ReflectionProbeSh2System {
         )
     }
 
-    fn schedule_equirect_source(
-        &self,
-        gpu: &mut GpuContext,
-        assets: &AssetTransferQueue,
-        key: Sh2SourceKey,
-        asset_id: i32,
-        params: &Sh2ProjectParams,
-        pipeline: &ProjectionPipeline,
-    ) -> Result<SubmittedGpuSh2Job, String> {
-        profiling::scope!("reflection_probe_sh2::schedule_equirect");
-        let tex = assets
-            .texture_pool()
-            .get(asset_id)
-            .filter(|t| t.mip_levels_resident > 0)
-            .ok_or_else(|| format!("texture2d {asset_id} not resident"))?;
-        let sampler = gpu.device().create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("SH2 equirect sampler"),
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-        let view = tex.view.clone();
-        let submit_done_tx = self.readback_jobs.submit_done_sender();
-        encode_projection_job(
-            gpu,
-            key,
-            pipeline,
-            &[
-                ProjectionBinding::TextureView(view.as_ref()),
-                ProjectionBinding::Sampler(&sampler),
-            ],
-            params,
-            &submit_done_tx,
-            "reflection_probe_sh2::project_equirect",
-        )
-    }
-
-    fn schedule_sky_params_source(
-        &self,
-        gpu: &mut GpuContext,
-        key: Sh2SourceKey,
-        params: &Sh2ProjectParams,
-        pipeline: &ProjectionPipeline,
-    ) -> Result<SubmittedGpuSh2Job, String> {
-        profiling::scope!("reflection_probe_sh2::schedule_sky_params");
-        let submit_done_tx = self.readback_jobs.submit_done_sender();
-        encode_projection_job(
-            gpu,
-            key,
-            pipeline,
-            &[],
-            params,
-            &submit_done_tx,
-            "reflection_probe_sh2::project_sky_params",
-        )
-    }
-
     fn schedule_runtime_cubemap_source(
         &self,
         gpu: &mut GpuContext,
@@ -232,8 +166,6 @@ impl ReflectionProbeSh2System {
 fn projection_pipeline_kind(source: &GpuSh2Source) -> ProjectionPipelineKind {
     match source {
         GpuSh2Source::Cubemap { .. } => ProjectionPipelineKind::Cubemap,
-        GpuSh2Source::EquirectTexture2D { .. } => ProjectionPipelineKind::Equirect,
-        GpuSh2Source::SkyParams { .. } => ProjectionPipelineKind::SkyParams,
         GpuSh2Source::RuntimeCubemap { .. } => ProjectionPipelineKind::Cubemap,
     }
 }

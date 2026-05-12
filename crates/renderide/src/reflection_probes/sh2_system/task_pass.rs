@@ -8,7 +8,6 @@ use super::super::task_rows::{
 use super::ReflectionProbeSh2System;
 use crate::backend::AssetTransferQueue;
 use crate::ipc::SharedMemoryAccessor;
-use crate::materials::MaterialSystem;
 use crate::profiling;
 use crate::reflection_probes::specular::RuntimeReflectionProbeCaptureStore;
 use crate::scene::SceneCoordinator;
@@ -17,7 +16,6 @@ use crate::shared::{ComputeResult, ReflectionProbeSH2Tasks};
 /// Borrow bundle for resolving SH2 task rows against host scene/material/asset state.
 pub(super) struct Sh2TaskSourceContext<'a> {
     pub(super) scene: &'a SceneCoordinator,
-    pub(super) materials: &'a MaterialSystem,
     pub(super) assets: &'a AssetTransferQueue,
     pub(super) captures: &'a RuntimeReflectionProbeCaptureStore,
     pub(super) render_space_id: i32,
@@ -68,7 +66,6 @@ impl ReflectionProbeSh2System {
     ) -> TaskAnswer {
         let Some((key, source)) = resolve_task_source(
             source_ctx.scene,
-            source_ctx.materials,
             source_ctx.assets,
             source_ctx.captures,
             source_ctx.render_space_id,

@@ -9,11 +9,9 @@ use super::super::projection_pipeline::{
     spawn_projection_pipeline_build,
 };
 
-/// Cache of the three SH2 projection compute pipelines, plus async build bookkeeping.
+/// Cache of SH2 projection compute pipelines, plus async build bookkeeping.
 pub(super) struct ProjectionPipelineCache {
     cubemap: Option<ProjectionPipeline>,
-    equirect: Option<ProjectionPipeline>,
-    sky_params: Option<ProjectionPipeline>,
     build_tx: crossbeam_channel::Sender<ProjectionPipelineBuildOutcome>,
     build_rx: crossbeam_channel::Receiver<ProjectionPipelineBuildOutcome>,
     pending_builds: HashSet<ProjectionPipelineKind>,
@@ -26,8 +24,6 @@ impl ProjectionPipelineCache {
         let (build_tx, build_rx) = crossbeam_channel::unbounded();
         Self {
             cubemap: None,
-            equirect: None,
-            sky_params: None,
             build_tx,
             build_rx,
             pending_builds: HashSet::new(),
@@ -39,8 +35,6 @@ impl ProjectionPipelineCache {
     pub(super) fn get(&self, kind: ProjectionPipelineKind) -> Option<&ProjectionPipeline> {
         match kind {
             ProjectionPipelineKind::Cubemap => self.cubemap.as_ref(),
-            ProjectionPipelineKind::Equirect => self.equirect.as_ref(),
-            ProjectionPipelineKind::SkyParams => self.sky_params.as_ref(),
         }
     }
 
@@ -102,8 +96,6 @@ impl ProjectionPipelineCache {
     fn slot_mut(&mut self, kind: ProjectionPipelineKind) -> &mut Option<ProjectionPipeline> {
         match kind {
             ProjectionPipelineKind::Cubemap => &mut self.cubemap,
-            ProjectionPipelineKind::Equirect => &mut self.equirect,
-            ProjectionPipelineKind::SkyParams => &mut self.sky_params,
         }
     }
 }

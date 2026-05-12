@@ -2,7 +2,6 @@
 
 use hashbrown::HashSet;
 
-use super::super::sh2_math::f32x4_bits;
 use crate::scene::RenderSpaceId;
 use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode};
 
@@ -16,30 +15,8 @@ pub(in crate::reflection_probes) const SH2_OUTPUT_BYTES: u64 = (9 * 16) as u64;
 
 /// Uniform payload shared by SH2 projection compute kernels.
 pub(in crate::reflection_probes) type Sh2ProjectParams = SkyboxEvaluatorParams;
-/// Parameter-only sky evaluator mode used by `sh2_project_sky_params`.
+/// Parameter mode used when building cubemap projection uniforms.
 pub(in crate::reflection_probes) type SkyParamMode = SkyboxParamMode;
-
-/// Hashable `Projection360` equirectangular sampling state used by SH2 cache keys.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(in crate::reflection_probes) struct Projection360EquirectKey {
-    /// `_FOV` bit pattern.
-    fov_bits: [u32; 4],
-    /// `_MainTex_ST` bit pattern.
-    main_tex_st_bits: [u32; 4],
-    /// `_MainTex_StorageVInverted` bit pattern.
-    storage_v_inverted_bits: u32,
-}
-
-impl Projection360EquirectKey {
-    /// Builds a cache-key fragment from the packed projection parameters.
-    pub(in crate::reflection_probes) fn from_params(params: &Sh2ProjectParams) -> Self {
-        Self {
-            fov_bits: f32x4_bits(params.color0),
-            main_tex_st_bits: f32x4_bits(params.color1),
-            storage_v_inverted_bits: params.scalars[0].to_bits(),
-        }
-    }
-}
 
 /// Hashable description of the source projected into SH2.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -89,46 +66,6 @@ pub(in crate::reflection_probes) enum Sh2SourceKey {
         /// Projection sample grid edge per cube face.
         sample_size: u32,
     },
-    /// Resident equirectangular texture source.
-    EquirectTexture2D {
-        /// Render-space id that owns the probe.
-        render_space_id: i32,
-        /// Skybox material asset id when this source came from a material.
-        material_asset_id: i32,
-        /// Host material generation.
-        material_generation: u64,
-        /// Stable hash of the shader route stem when this source came from a material.
-        route_hash: u64,
-        /// Texture asset id.
-        asset_id: i32,
-        /// Source GPU allocation generation.
-        allocation_generation: u64,
-        /// Mip0 width.
-        width: u32,
-        /// Mip0 height.
-        height: u32,
-        /// Contiguous resident mip count.
-        resident_mips: u32,
-        /// Source texture content generation.
-        content_generation: u64,
-        /// Projection sample grid edge per cube face.
-        sample_size: u32,
-        /// Projection360 equirectangular sampling state.
-        projection: Projection360EquirectKey,
-    },
-    /// Parameter-only sky material source.
-    SkyParams {
-        /// Render-space id that owns the probe.
-        render_space_id: i32,
-        /// Skybox material asset id.
-        material_asset_id: i32,
-        /// Host material generation.
-        material_generation: u64,
-        /// Projection sample grid edge per cube face.
-        sample_size: u32,
-        /// Shader route discriminator.
-        route_hash: u64,
-    },
 }
 
 impl Sh2SourceKey {
@@ -164,12 +101,6 @@ impl Sh2SourceKey {
                 render_space_id, ..
             }
             | Self::RuntimeCubemap {
-                render_space_id, ..
-            }
-            | Self::EquirectTexture2D {
-                render_space_id, ..
-            }
-            | Self::SkyParams {
                 render_space_id, ..
             } => render_space_id,
         }

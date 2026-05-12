@@ -1,17 +1,9 @@
-//! Shared parameter payload and material-property helpers used by every analytic sky evaluator.
+//! Shared parameter payload and helpers used by cubemap compute shaders.
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::backend::material_property_reader::{float4_array16_property, float4_property};
-use crate::color_space::srgb_f32x4_rgb_to_linear;
-use crate::materials::host_data::{
-    MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue, PropertyIdRegistry,
-};
-
 /// Default sky parameter sample grid used by SH2 projection.
 pub(crate) const DEFAULT_SKYBOX_SAMPLE_SIZE: u32 = 64;
-/// Default texture scale/offset used by Unity `_MainTex_ST` properties.
-pub(crate) const DEFAULT_MAIN_TEX_ST: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 
 /// Parameter-only sky evaluator mode used by skybox compute shaders.
 #[derive(Clone, Copy, Debug)]
@@ -81,41 +73,6 @@ impl SkyboxEvaluatorParams {
 /// Converts a storage-orientation boolean to the shader keyword float convention.
 pub(crate) fn storage_v_inverted_flag(storage_v_inverted: bool) -> f32 {
     if storage_v_inverted { 1.0 } else { 0.0 }
-}
-
-/// Reads a scalar float material property by host name when the property was present.
-pub(super) fn optional_float_property(
-    store: &MaterialPropertyStore,
-    registry: &PropertyIdRegistry,
-    lookup: MaterialPropertyLookupIds,
-    name: &str,
-) -> Option<f32> {
-    let pid = registry.intern(name);
-    match store.get_merged(lookup, pid) {
-        Some(MaterialPropertyValue::Float(v)) => Some(*v),
-        _ => None,
-    }
-}
-
-/// Reads an sRGB-authored color property and converts its RGB channels to linear.
-pub(super) fn srgb_float4_property(
-    store: &MaterialPropertyStore,
-    registry: &PropertyIdRegistry,
-    lookup: MaterialPropertyLookupIds,
-    name: &str,
-    fallback: [f32; 4],
-) -> [f32; 4] {
-    srgb_f32x4_rgb_to_linear(float4_property(store, registry, lookup, name, fallback))
-}
-
-/// Reads an sRGB-authored 16-element color array and converts each entry to linear.
-pub(super) fn srgb_float4_array16_property(
-    store: &MaterialPropertyStore,
-    registry: &PropertyIdRegistry,
-    lookup: MaterialPropertyLookupIds,
-    name: &str,
-) -> [[f32; 4]; 16] {
-    float4_array16_property(store, registry, lookup, name).map(srgb_f32x4_rgb_to_linear)
 }
 
 #[cfg(test)]
