@@ -8,10 +8,10 @@
 
 #import renderide::frame::globals as rg
 #import renderide::material::alpha_clip_sample as acs
-#import renderide::material::sample as ms
 #import renderide::material::variant_bits as vb
 #import renderide::material::vertex_color as vc
 #import renderide::mesh::vertex as mv
+#import renderide::core::uv as uvu
 
 struct OverlayUnlitMaterial {
     _BehindColor: vec4<f32>,
@@ -103,8 +103,11 @@ fn sample_layer(
     if (!kw_TEXTURE()) {
         return tint;
     }
-    let sample_uv = ms::sample_uv(uv, st, mat._PolarPow, kw_POLARUV());
-    return textureSample(tex, samp, sample_uv) * tint;
+    if (kw_POLARUV()) {
+        let mapped = uvu::polar_mapping(uv, st, mat._PolarPow);
+        return textureSampleGrad(tex, samp, mapped.uv, mapped.ddx_uv, mapped.ddy_uv) * tint;
+    }
+    return textureSample(tex, samp, uvu::apply_st(uv, st)) * tint;
 }
 
 /// Same UV as [`sample_layer`], base mip -- for `_Cutoff` vs composited alpha only.
@@ -118,7 +121,10 @@ fn sample_layer_lod0(
     if (!kw_TEXTURE()) {
         return tint;
     }
-    let sample_uv = ms::sample_uv(uv, st, mat._PolarPow, kw_POLARUV());
+    var sample_uv = uvu::apply_st(uv, st);
+    if (kw_POLARUV()) {
+        sample_uv = uvu::polar_mapping(uv, st, mat._PolarPow).uv;
+    }
     return acs::texture_rgba_base_mip(tex, samp, sample_uv) * tint;
 }
 

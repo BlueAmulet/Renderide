@@ -41,6 +41,124 @@ fn assert_variant_bits_migration(
 }
 
 #[test]
+fn pbscolormask_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbscolormask.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_MULTI_VALUES",
+        ],
+        &[
+            ("PBSCOLORMASK_KW_ALBEDOTEX", 0),
+            ("PBSCOLORMASK_KW_EMISSIONTEX", 1),
+            ("PBSCOLORMASK_KW_METALLICMAP", 2),
+            ("PBSCOLORMASK_KW_NORMALMAP", 3),
+            ("PBSCOLORMASK_KW_OCCLUSION", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbscolormaskspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbscolormaskspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_MULTI_VALUES",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+        ],
+        &[
+            ("PBSCOLORMASKSPECULAR_KW_ALBEDOTEX", 0),
+            ("PBSCOLORMASKSPECULAR_KW_EMISSIONTEX", 1),
+            ("PBSCOLORMASKSPECULAR_KW_MULTI_VALUES", 2),
+            ("PBSCOLORMASKSPECULAR_KW_NORMALMAP", 3),
+            ("PBSCOLORMASKSPECULAR_KW_OCCLUSION", 4),
+            ("PBSCOLORMASKSPECULAR_KW_SPECULARMAP", 5),
+        ],
+    )
+}
+
+#[test]
+fn pbscolorsplat_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbscolorsplat.wgsl",
+        &[
+            "_EMISSIONTEX",
+            "_HEIGHTMAP",
+            "_METALLICMAP",
+            "_PACKED_EMISSIONTEX",
+            "_PACKED_NORMALMAP",
+        ],
+        &[
+            ("PBSCOLORSPLAT_KW_EMISSIONTEX", 0),
+            ("PBSCOLORSPLAT_KW_HEIGHTMAP", 1),
+            ("PBSCOLORSPLAT_KW_METALLICMAP", 2),
+            ("PBSCOLORSPLAT_KW_PACKED_EMISSIONTEX", 3),
+            ("PBSCOLORSPLAT_KW_PACKED_NORMALMAP", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbscolorsplatspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbscolorsplatspecular.wgsl",
+        &[
+            "_EMISSIONTEX",
+            "_HEIGHTMAP",
+            "_PACKED_EMISSIONTEX",
+            "_PACKED_NORMALMAP",
+            "_SPECULARMAP",
+        ],
+        &[
+            ("PBSCOLORSPLATSPECULAR_KW_EMISSIONTEX", 0),
+            ("PBSCOLORSPLATSPECULAR_KW_HEIGHTMAP", 1),
+            ("PBSCOLORSPLATSPECULAR_KW_PACKED_EMISSIONTEX", 2),
+            ("PBSCOLORSPLATSPECULAR_KW_PACKED_NORMALMAP", 3),
+            ("PBSCOLORSPLATSPECULAR_KW_SPECULARMAP", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsdisplace_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdisplace.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "OBJECT_POS_OFFSET",
+            "UV_OFFSET",
+            "VERTEX_OFFSET",
+            "VERTEX_POS_OFFSET",
+        ],
+        &[
+            ("PBSDISP_KW_ALBEDOTEX", 0),
+            ("PBSDISP_KW_ALPHACLIP", 1),
+            ("PBSDISP_KW_EMISSIONTEX", 2),
+            ("PBSDISP_KW_METALLICMAP", 3),
+            ("PBSDISP_KW_NORMALMAP", 4),
+            ("PBSDISP_KW_OCCLUSION", 5),
+            ("PBSDISP_KW_OBJECT_POS_OFFSET", 6),
+            ("PBSDISP_KW_UV_OFFSET", 7),
+            ("PBSDISP_KW_VERTEX_OFFSET", 8),
+            ("PBSDISP_KW_VERTEX_POS_OFFSET", 9),
+        ],
+    )
+}
+
+#[test]
 fn pbsdualsided_decodes_keywords_from_variant_bits() -> io::Result<()> {
     assert_variant_bits_migration(
         "pbsdualsided.wgsl",

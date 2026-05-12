@@ -93,10 +93,11 @@ fn sample_overlay_tex(
     uv: vec2<f32>,
     st: vec4<f32>,
 ) -> vec4<f32> {
-    let uv_regular = uvu::apply_st(uv, st);
-    let uv_polar = uvu::apply_st(uvu::polar_uv(uv, mat._PolarPow), st);
-    let sample_uv = select(uv_regular, uv_polar, kw_POLARUV());
-    return textureSample(tex, samp, sample_uv);
+    if (kw_POLARUV()) {
+        let mapped = uvu::polar_mapping(uv, st, mat._PolarPow);
+        return textureSampleGrad(tex, samp, mapped.uv, mapped.ddx_uv, mapped.ddy_uv);
+    }
+    return textureSample(tex, samp, uvu::apply_st(uv, st));
 }
 
 fn overlay_normal(in: mv::WorldVertexOutput) -> vec3<f32> {

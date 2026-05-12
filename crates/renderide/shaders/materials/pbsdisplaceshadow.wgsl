@@ -2,12 +2,11 @@
 //! vertex-displaced mesh, with a matching shadow-caster proxy.
 //!
 //! The Unity asset declares `surface surf Standard fullforwardshadows vertex:vert addshadow`
-//! with an empty `surf` body, so the fragment shading collapses to defaults: albedo is
-//! `_Color * _MainTex`, metallic is 0, smoothness is the Standard default (0.5), no normal
-//! map, no emission. The vertex stage samples `_VertexOffsetMap.r` and offsets along the mesh
-//! normal; the depth-only pass uses the same displacement so shadow casts line up.
+//! with an empty `surf` body, so the fragment shading collapses to defaults: black albedo,
+//! alpha 1, metallic 0, smoothness 0, no normal map, no emission. The vertex stage samples
+//! `_VertexOffsetMap.r` and offsets along the mesh normal; the depth-only pass uses the same
+//! displacement so shadow casts line up.
 
-#import renderide::core::uv as uvu
 #import renderide::draw::per_draw as pd
 #import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
@@ -78,22 +77,15 @@ fn vs_main(
     );
 }
 
-fn albedo_sample(uv0: vec2<f32>) -> vec4<f32> {
-    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
-    return textureSample(_MainTex, _MainTex_sampler, uv_main) * mat._Color;
-}
-
-/// Forward pass: Standard metallic shading with Unity's default surf inputs (metallic=0,
-/// smoothness=0.5) and `_MainTex * _Color` albedo.
+/// Forward pass: Standard metallic shading with Unity's empty-surface defaults.
 //#pass forward
 @fragment
 fn fs_forward_base(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
-    let albedo = albedo_sample(in.primary_uv);
     let surface = psurf::metallic(
-        albedo.rgb,
-        albedo.a,
+        vec3<f32>(0.0),
+        1.0,
         0.0,
-        0.5,
+        1.0,
         1.0,
         normalize(in.world_n),
         vec3<f32>(0.0),
@@ -105,7 +97,7 @@ fn fs_forward_base(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
         surface,
         plight::default_lighting_options(),
     );
-    return vec4<f32>(shaded, albedo.a);
+    return vec4<f32>(shaded, 1.0);
 }
 
 /// Depth-only proxy pass for the `addshadow` shadow caster: emit a zero color that retains
@@ -113,7 +105,6 @@ fn fs_forward_base(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
 //#pass depth_prepass
 @fragment
 fn fs_depth_only(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
-    let albedo = albedo_sample(in.primary_uv);
-    let touch = (albedo.x + in.primary_uv.x) * 0.0;
+    let touch = in.primary_uv.x * 0.0;
     return rg::retain_globals_additive(vec4<f32>(touch, touch, touch, 0.0));
 }

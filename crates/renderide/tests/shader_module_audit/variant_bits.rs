@@ -146,6 +146,49 @@ fn matcap_uses_reserved_variant_bits() -> io::Result<()> {
 }
 
 #[test]
+fn overlayfresnel_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "overlayfresnel.wgsl",
+        &["_MUL_ALPHA_INTENSITY", "_NORMALMAP", "_POLARUV", "_TEXTURE"],
+        &[
+            ("OVERLAYFRESNEL_KW_MUL_ALPHA_INTENSITY", 0),
+            ("OVERLAYFRESNEL_KW_NORMALMAP", 1),
+            ("OVERLAYFRESNEL_KW_POLARUV", 2),
+            ("OVERLAYFRESNEL_KW_TEXTURE", 3),
+        ],
+    )
+}
+
+#[test]
+fn overlayunlit_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "overlayunlit.wgsl",
+        &[
+            "_ALPHATEST",
+            "_MUL_ALPHA_INTENSITY",
+            "_MUL_RGB_BY_ALPHA",
+            "_POLARUV",
+            "_TEXTURE",
+            "_VERTEX_HDRSRGB_COLOR",
+            "_VERTEX_LINEAR_COLOR",
+            "_VERTEX_SRGB_COLOR",
+            "_VERTEXCOLORS",
+        ],
+        &[
+            ("OVERLAYUNLIT_KW_ALPHATEST", 0),
+            ("OVERLAYUNLIT_KW_MUL_ALPHA_INTENSITY", 1),
+            ("OVERLAYUNLIT_KW_MUL_RGB_BY_ALPHA", 2),
+            ("OVERLAYUNLIT_KW_POLARUV", 3),
+            ("OVERLAYUNLIT_KW_TEXTURE", 4),
+            ("OVERLAYUNLIT_KW_VERTEX_HDRSRGB_COLOR", 5),
+            ("OVERLAYUNLIT_KW_VERTEX_LINEAR_COLOR", 6),
+            ("OVERLAYUNLIT_KW_VERTEX_SRGB_COLOR", 7),
+            ("OVERLAYUNLIT_KW_VERTEXCOLORS", 8),
+        ],
+    )
+}
+
+#[test]
 fn cubemapprojection_uses_reserved_variant_bits() -> io::Result<()> {
     assert_variant_bits_shader(
         "cubemapprojection.wgsl",
