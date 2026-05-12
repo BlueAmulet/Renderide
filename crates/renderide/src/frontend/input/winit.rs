@@ -17,8 +17,8 @@ use winit::event::{
 use winit::window::Window;
 
 use self::event_transition::{
-    HeldKeyTransition, KeyboardEventTransition, MouseButtonSlot, keyboard_event_transition,
-    mouse_button_transition, scroll_delta_from_wheel,
+    HeldKeyTransition, KeyboardEventTransition, MouseButtonSlot, host_scroll_delta_from_wheel,
+    imgui_scroll_delta_from_wheel, keyboard_event_transition, mouse_button_transition,
 };
 use super::accumulator::WindowInputAccumulator;
 
@@ -167,9 +167,12 @@ fn apply_mouse_button(acc: &mut WindowInputAccumulator, state: ElementState, but
     }
 }
 
-/// Accumulates scroll delta for a [`WindowEvent::MouseWheel`] (line-scale normalised to pixels).
+/// Accumulates scroll delta for a [`WindowEvent::MouseWheel`] in host and HUD units.
 fn apply_mouse_wheel(acc: &mut WindowInputAccumulator, delta: &MouseScrollDelta) {
-    acc.scroll_delta += scroll_delta_from_wheel(delta);
+    acc.push_scroll_delta(
+        host_scroll_delta_from_wheel(delta),
+        imgui_scroll_delta_from_wheel(delta),
+    );
 }
 
 /// Updates held-key list and queued text-input strings for a non-synthetic [`KeyEvent`].
