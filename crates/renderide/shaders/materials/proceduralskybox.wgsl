@@ -7,7 +7,8 @@
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes ProceduralSky's
 //! shader-specific keyword bits locally. `UNITY_COLORSPACE_GAMMA` is reserved in the bit
-//! table but never consulted because the renderer is linear-only.
+//! table but never consulted because the renderer is linear-only. The sun-disk group has
+//! no `_` placeholder, so the high-quality keyword is the zero-bit default.
 
 #import renderide::frame::globals as rg
 #import renderide::draw::per_draw as pd
@@ -30,6 +31,8 @@ const PROCSKY_KW_UNITY_COLORSPACE_GAMMA: u32 = 1u << 0u;
 const PROCSKY_KW_SUNDISK_HIGH_QUALITY: u32 = 1u << 1u;
 const PROCSKY_KW_SUNDISK_NONE: u32 = 1u << 2u;
 const PROCSKY_KW_SUNDISK_SIMPLE: u32 = 1u << 3u;
+const PROCSKY_GROUP_SUNDISK: u32 =
+    PROCSKY_KW_SUNDISK_HIGH_QUALITY | PROCSKY_KW_SUNDISK_NONE | PROCSKY_KW_SUNDISK_SIMPLE;
 
 @group(1) @binding(0) var<uniform> mat: ProceduralSkyboxMaterial;
 
@@ -42,12 +45,17 @@ fn kw_SUNDISK_NONE() -> bool {
 }
 
 fn kw_SUNDISK_HIGH_QUALITY() -> bool {
-    return procsky_kw(PROCSKY_KW_SUNDISK_HIGH_QUALITY);
+    return (mat._RenderideVariantBits & PROCSKY_GROUP_SUNDISK) == 0u
+        || procsky_kw(PROCSKY_KW_SUNDISK_HIGH_QUALITY);
 }
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
-    @location(0) eye_ray: vec3<f32>,
+    @location(0) ground_color: vec3<f32>,
+    @location(1) sky_color: vec3<f32>,
+    @location(2) sun_color: vec3<f32>,
+    @location(3) fragment_ray: vec3<f32>,
+    @location(4) sky_ground_factor: f32,
 }
 
 @vertex
@@ -68,14 +76,33 @@ fn vs_main(
 
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
-    out.eye_ray = mv::model_vector(d, pos.xyz);
+    let terms = ps::visible_vertex_terms(procedural_sky_params(), mv::model_vector(d, pos.xyz));
+    out.ground_color = terms.ground_color;
+    out.sky_color = terms.sky_color;
+    out.sun_color = terms.sun_color;
+    out.fragment_ray = terms.fragment_ray;
+    out.sky_ground_factor = terms.sky_ground_factor;
     return out;
 }
 
 //#pass forward
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let params = ps::ProceduralSkyParams(
+    let terms = ps::ProceduralSkyVisibleTerms(
+        in.ground_color,
+        in.sky_color,
+        in.sun_color,
+        in.fragment_ray,
+        in.sky_ground_factor,
+    );
+    return rg::retain_globals_additive(vec4<f32>(
+        ps::visible_fragment_color(procedural_sky_params(), terms),
+        1.0,
+    ));
+}
+
+fn procedural_sky_params() -> ps::ProceduralSkyParams {
+    return ps::ProceduralSkyParams(
         mat._SkyTint.rgb,
         mat._GroundColor.rgb,
         mat._SunColor.rgb,
@@ -85,7 +112,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         mat._AtmosphereThickness,
         procedural_sun_disk_mode(),
     );
-    return rg::retain_globals_additive(vec4<f32>(ps::sample(params, in.eye_ray), 1.0));
 }
 
 fn procedural_sun_disk_mode() -> f32 {

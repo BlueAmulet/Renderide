@@ -94,6 +94,36 @@ fn proceduralskybox_defaults_sun_disk_to_high_quality() -> io::Result<()> {
 }
 
 #[test]
+fn proceduralskybox_visible_paths_interpolate_unity_vertex_terms() -> io::Result<()> {
+    for (path_label, src) in [
+        (
+            "materials/proceduralskybox.wgsl",
+            material_source("proceduralskybox.wgsl")?,
+        ),
+        (
+            "passes/backend/skybox_proceduralskybox.wgsl",
+            source_file(
+                manifest_dir().join("shaders/passes/backend/skybox_proceduralskybox.wgsl"),
+            )?,
+        ),
+    ] {
+        assert!(
+            src.contains("ps::visible_vertex_terms(")
+                && src.contains("ps::visible_fragment_color("),
+            "{path_label} must split ProceduralSkybox into Unity-style vertex sky terms \
+             plus fragment horizon/sun mixing.",
+        );
+        assert!(
+            !src.contains("ps::sample("),
+            "{path_label} must not call ps::sample in the visible fragment path; that \
+             recomputes the discontinuous sky/ground scattering branch per pixel and \
+             can draw a bright horizon line.",
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn projection360_clamp_intensity_guards_against_zero_max() -> io::Result<()> {
     let src = source_file(manifest_dir().join("shaders/modules/skybox/projection360.wgsl"))?;
     assert!(

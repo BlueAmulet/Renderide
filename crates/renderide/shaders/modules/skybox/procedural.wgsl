@@ -37,6 +37,14 @@ struct ProceduralSkyParams {
     sun_disk_mode: f32,
 }
 
+struct ProceduralSkyVisibleTerms {
+    ground_color: vec3<f32>,
+    sky_color: vec3<f32>,
+    sun_color: vec3<f32>,
+    fragment_ray: vec3<f32>,
+    sky_ground_factor: f32,
+}
+
 struct ScatteringStep {
     contribution: vec3<f32>,
     attenuate: vec3<f32>,
@@ -201,7 +209,7 @@ fn sun_disk_mode_high_quality(mode: f32) -> bool {
     return mode > 1.5;
 }
 
-fn sample(params: ProceduralSkyParams, input_eye_ray: vec3<f32>) -> vec3<f32> {
+fn visible_vertex_terms(params: ProceduralSkyParams, input_eye_ray: vec3<f32>) -> ProceduralSkyVisibleTerms {
     let eye_ray = safe_normalize(input_eye_ray, vec3<f32>(0.0, 1.0, 0.0));
     let sun_dir = safe_normalize(params.sun_direction, vec3<f32>(0.0, 1.0, 0.0));
     let scattering_wavelength = scattering_wavelength_from_tint(params.sky_tint);
@@ -214,19 +222,39 @@ fn sample(params: ProceduralSkyParams, input_eye_ray: vec3<f32>) -> vec3<f32> {
     let sun_color = params.exposure * (scattering.c_out * params.sun_color);
     let fragment_ray = -eye_ray;
     let sky_ground_factor = fragment_ray.y / SKY_GROUND_THRESHOLD;
-    var color = mix(sky_color, ground_color, clamp(sky_ground_factor, 0.0, 1.0));
+    return ProceduralSkyVisibleTerms(
+        ground_color,
+        sky_color,
+        sun_color,
+        fragment_ray,
+        sky_ground_factor,
+    );
+}
 
-    if (!sun_disk_mode_none(params.sun_disk_mode) && sky_ground_factor < 0.0) {
+fn visible_fragment_color(params: ProceduralSkyParams, terms: ProceduralSkyVisibleTerms) -> vec3<f32> {
+    let sun_dir = safe_normalize(params.sun_direction, vec3<f32>(0.0, 1.0, 0.0));
+    let fragment_ray = safe_normalize(terms.fragment_ray, vec3<f32>(0.0, -1.0, 0.0));
+    var color = mix(
+        terms.sky_color,
+        terms.ground_color,
+        clamp(terms.sky_ground_factor, 0.0, 1.0),
+    );
+
+    if (!sun_disk_mode_none(params.sun_disk_mode) && terms.sky_ground_factor < 0.0) {
         let sun_size = clamp(params.sun_size, 1.0e-4, 1.0);
         var mie: f32;
         if (sun_disk_mode_high_quality(params.sun_disk_mode)) {
             let eye_cos = dot(sun_dir, fragment_ray);
             mie = mie_phase(eye_cos, eye_cos * eye_cos, sun_size);
         } else {
-            mie = calc_sun_spot(sun_dir, eye_ray, sun_size);
+            mie = calc_sun_spot(sun_dir, -fragment_ray, sun_size);
         }
-        color = color + mie * sun_color;
+        color = color + mie * terms.sun_color;
     }
 
     return max(color, vec3<f32>(0.0));
+}
+
+fn sample(params: ProceduralSkyParams, input_eye_ray: vec3<f32>) -> vec3<f32> {
+    return visible_fragment_color(params, visible_vertex_terms(params, input_eye_ray));
 }
