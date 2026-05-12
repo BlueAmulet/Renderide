@@ -28,6 +28,8 @@ const UNLITDISTANCELERP_KW_ALPHATEST: u32 = 1u << 0u;
 const UNLITDISTANCELERP_KW_VERTEXCOLORS: u32 = 1u << 1u;
 const UNLITDISTANCELERP_KW_LOCAL_SPACE: u32 = 1u << 2u;
 const UNLITDISTANCELERP_KW_WORLD_SPACE: u32 = 1u << 3u;
+const UNLITDISTANCELERP_SPACE_GROUP: u32 =
+    UNLITDISTANCELERP_KW_LOCAL_SPACE | UNLITDISTANCELERP_KW_WORLD_SPACE;
 
 @group(1) @binding(0) var<uniform> mat: UnlitDistanceLerpMaterial;
 @group(1) @binding(1) var _NearTex: texture_2d<f32>;
@@ -84,6 +86,9 @@ fn kw_VERTEXCOLORS() -> bool {
 }
 
 fn kw_WORLD_SPACE() -> bool {
+    if ((mat._RenderideVariantBits & UNLITDISTANCELERP_SPACE_GROUP) == 0u) {
+        return true;
+    }
     return unlitdistancelerp_kw(UNLITDISTANCELERP_KW_WORLD_SPACE);
 }
 
@@ -105,21 +110,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let near_uv = uvu::apply_st(in.uv, mat._NearTex_ST);
     let far_uv = uvu::apply_st(in.uv, mat._FarTex_ST);
 
-    var near = textureSample(_NearTex, _NearTex_sampler, near_uv) * mat._NearColor;
-    var far = textureSample(_FarTex, _FarTex_sampler, far_uv) * mat._FarColor;
-
-    let use_vertex_colors = kw_VERTEXCOLORS();
-    if (use_vertex_colors) {
-        near = near * in.color;
-        far = far * in.color;
-    }
+    let near = textureSample(_NearTex, _NearTex_sampler, near_uv) * mat._NearColor;
+    let far = textureSample(_FarTex, _FarTex_sampler, far_uv) * mat._FarColor;
 
     let c = mix(near, far, l);
 
     if (kw_ALPHATEST()) {
         let near_alpha = acs::texture_alpha_base_mip(_NearTex, _NearTex_sampler, near_uv) * mat._NearColor.a;
         let far_alpha = acs::texture_alpha_base_mip(_FarTex, _FarTex_sampler, far_uv) * mat._FarColor.a;
-        let clip_a = mix(near_alpha, far_alpha, l) * select(1.0, in.color.a, use_vertex_colors);
+        let clip_a = mix(near_alpha, far_alpha, l);
         if (clip_a <= mat._Cutoff) {
             discard;
         }

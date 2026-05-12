@@ -175,14 +175,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let main_st = main_texture_st(in.view_layer);
 
     var uv_main: vec2<f32>;
+    var ddx_uv: vec2<f32>;
+    var ddy_uv: vec2<f32>;
     if (use_polar_uv) {
-        let polar = uvu::polar_uv(in.uv, max(mat._PolarPow, 1e-4));
-        uv_main = uvu::apply_st(polar, main_st);
+        let mapped = uvu::polar_mapping(in.uv, main_st, max(mat._PolarPow, 1e-4));
+        uv_main = mapped.uv;
+        ddx_uv = mapped.ddx_uv;
+        ddy_uv = mapped.ddy_uv;
     } else {
         uv_main = uvu::apply_st(in.uv, main_st);
+        ddx_uv = dpdx(uv_main);
+        ddy_uv = dpdy(uv_main);
     }
-    let ddx_uv = dpdx(uv_main);
-    let ddy_uv = dpdy(uv_main);
 
     if (use_texture && kw_OFFSET_TEXTURE()) {
         let uv_off = uvu::apply_st(in.uv, mat._OffsetTex_ST);

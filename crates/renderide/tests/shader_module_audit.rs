@@ -157,6 +157,71 @@ fn unlit_uses_reserved_variant_bits_instead_of_keyword_uniform_fields() -> io::R
     Ok(())
 }
 
+#[test]
+fn unlit_polar_variants_use_unity_derivative_selection() -> io::Result<()> {
+    let unlit = material_source("unlit.wgsl")?;
+    assert!(
+        unlit
+            .contains("let mapped = uvu::polar_mapping(in.uv, main_st, max(mat._PolarPow, 1e-4));")
+            && unlit.contains("ddx_uv = mapped.ddx_uv;")
+            && unlit.contains("ddy_uv = mapped.ddy_uv;")
+            && unlit.contains("textureSampleGrad(_Tex, _Tex_sampler, uv_main, ddx_uv, ddy_uv)"),
+        "Unlit must use the shared Unity polar derivative-selection helper before textureSampleGrad"
+    );
+    assert!(
+        !unlit.contains("let polar = uvu::polar_uv(in.uv"),
+        "Unlit must not reconstruct polar derivatives with raw dpdx/dpdy"
+    );
+
+    let polar = material_source("unlitpolarmapping.wgsl")?;
+    assert!(
+        polar.contains(
+            "let mapped = uvu::polar_mapping(uv_in, mat._MainTex_ST, max(mat._Pow, 1e-4));"
+        ) && polar.contains(
+            "textureSampleGrad(_MainTex, _MainTex_sampler, mapped.uv, mapped.ddx_uv, mapped.ddy_uv)"
+        ),
+        "UnlitPolarMapping must use the shared Unity polar derivative-selection helper"
+    );
+    assert!(
+        !polar.contains("dpdx(polar_st)") && !polar.contains("dpdy(polar_st)"),
+        "UnlitPolarMapping must not use raw derivatives across the polar seam"
+    );
+    Ok(())
+}
+
+#[test]
+fn unlitdistancelerp_matches_sorted_keyword_bits_and_fragment_parity() -> io::Result<()> {
+    let src = material_source("unlitdistancelerp.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("UNLITDISTANCELERP_KW_ALPHATEST", 0),
+        ("UNLITDISTANCELERP_KW_VERTEXCOLORS", 1),
+        ("UNLITDISTANCELERP_KW_LOCAL_SPACE", 2),
+        ("UNLITDISTANCELERP_KW_WORLD_SPACE", 3),
+    ] {
+        assert!(
+            src.contains(&format!("const {constant_name}: u32 = 1u << {bit_index}u;")),
+            "{constant_name} must match the Froox sorted UniqueKeywords bit order"
+        );
+    }
+    assert!(
+        src.contains("UNLITDISTANCELERP_SPACE_GROUP")
+            && src.contains("(mat._RenderideVariantBits & UNLITDISTANCELERP_SPACE_GROUP) == 0u")
+            && src.contains("return true;"),
+        "UnlitDistanceLerp must default the WORLD_SPACE/LOCAL_SPACE group to WORLD_SPACE"
+    );
+    for forbidden in [
+        "near = near * in.color",
+        "far = far * in.color",
+        "select(1.0, in.color.a",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "UnlitDistanceLerp Unity fragment does not apply `_VERTEXCOLORS`; found `{forbidden}`"
+        );
+    }
+    Ok(())
+}
+
 fn count_font_atlas_lod_bias_samples(src: &str) -> usize {
     src.match_indices("ts::sample_tex_2d(")
         .filter(|(sample_pos, _)| {

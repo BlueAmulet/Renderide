@@ -107,7 +107,7 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
 
     for required in [
         "return rprobe::indirect_diffuse(world_pos, s.normal, view_layer, true);",
-        "let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());",
+        "let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr_for_layout(keyword_layout));",
         "let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);",
         "let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);",
         "let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);",
@@ -128,7 +128,7 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
     );
 
     let pbr_branch_pos = lighting_src
-        .find("let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());")
+        .find("let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr_for_layout(keyword_layout));")
         .expect("Xiexe PBR reflection branch must query probe availability");
     let pbr_return_pos = lighting_src[pbr_branch_pos..]
         .find("return spec;")
@@ -243,6 +243,12 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> 
     let variant_bits_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/variant_bits.wgsl"))?;
     for required in [
+        "const XTOON_KEYWORD_LAYOUT_GENERIC: u32 = 0u;",
+        "const XTOON_KEYWORD_LAYOUT_STATIC_VERTEXLIGHT: u32 = 1u;",
+        "const XTOON_STATIC_KW_VERTEXLIGHT_ON: u32 = 1u << 0u;",
+        "fn kw_VERTEXLIGHT_ON_for_layout(keyword_layout: u32) -> bool",
+        "return xtoon_static_kw(XTOON_STATIC_KW_VERTEXLIGHT_ON);",
+        "fn resolved_alpha_mode_from_bits_for_layout(static_alpha_mode: u32, keyword_layout: u32) -> u32",
         "fn resolved_alpha_mode_from_bits(static_alpha_mode: u32) -> u32",
         "kw_Cutout()",
         "return xb::ALPHA_CUTOUT;",
@@ -272,5 +278,57 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> 
             "{file_name} must not retain the legacy keyword-driven alpha-mode resolver"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn xiexe_static_stems_use_static_vertexlight_keyword_layout() -> io::Result<()> {
+    let variant_bits_src =
+        source_file(manifest_dir().join("shaders/modules/xiexe/toon2/variant_bits.wgsl"))?;
+    for required in [
+        "fn normal_map_enabled_for_layout(keyword_layout: u32) -> bool",
+        "fn emission_map_enabled_for_layout(keyword_layout: u32) -> bool",
+        "if (static_vertexlight_layout(keyword_layout)) {\n        return false;\n    }\n    let c = xb::mat._EmissionColor.rgb;",
+        "fn matcap_enabled_for_layout(keyword_layout: u32) -> bool",
+        "fn reflection_uses_pbr_for_layout(keyword_layout: u32) -> bool",
+    ] {
+        assert!(
+            variant_bits_src.contains(required),
+            "xiexe_toon2_variant_bits.wgsl must contain `{required}`"
+        );
+    }
+
+    for file_name in [
+        "xstoon2.0-cutout.wgsl",
+        "xstoon2.0-cutouta2c.wgsl",
+        "xstoon2.0-cutouta2cmasked.wgsl",
+        "xstoon2.0-cutouta2c-outlined.wgsl",
+        "xstoon2.0-dithered-outlined.wgsl",
+    ] {
+        let src = material_source(file_name)?;
+        assert!(
+            src.contains(
+                "const XIEE_KEYWORD_LAYOUT: u32 = xvb::XTOON_KEYWORD_LAYOUT_STATIC_VERTEXLIGHT;"
+            ),
+            "{file_name} must select the static XSToon keyword layout"
+        );
+        assert!(
+            src.contains("xs::fragment_forward_for_layout(")
+                && src.contains("XIEE_ALPHA_MODE, XIEE_KEYWORD_LAYOUT"),
+            "{file_name} must pass the static keyword layout into the forward fragment path"
+        );
+    }
+
+    for file_name in [
+        "xstoon2.0-cutouta2c-outlined.wgsl",
+        "xstoon2.0-dithered-outlined.wgsl",
+    ] {
+        let src = material_source(file_name)?;
+        assert!(
+            src.contains("xs::fragment_outline_for_layout("),
+            "{file_name} must pass the static keyword layout into the outline fragment path"
+        );
+    }
+
     Ok(())
 }
