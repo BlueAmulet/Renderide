@@ -53,7 +53,6 @@ fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let c = gp::sample_scene_color(gp::frag_screen_uv(in.clip_pos), in.view_layer);
-    let levels = max(mat._Levels, 1.0);
-    let filtered = round(c.rgb * levels) / levels;
+    let filtered = round(c.rgb * mat._Levels) / mat._Levels;
     return rg::retain_globals_additive(vec4<f32>(filtered, c.a));
 }
