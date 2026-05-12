@@ -266,12 +266,11 @@ The second is the in-renderer diagnostics overlay built with Dear ImGui. It surf
 
 ### 2.9 Continuous integration
 
-Two GitHub Actions workflows live under `.github/workflows/`.
+The main check workflow lives under `.github/workflows/`.
 
-- `rust-ci.yml` builds and tests the Rust workspace on Ubuntu, Windows, and macOS in parallel. Linux is the only matrix entry that uses `--all-features`, because GStreamer dev packages are reliably installable from the system package manager only on Linux. Windows and macOS still build the `tracy` feature so it stays warning-free on those platforms. The Linux job also installs Vulkan tooling so the `materials::registry` smoke test can find an adapter.
-- `dotnet-ci.yml` builds the .NET solution on the same three OSes, runs the generator's unit and roundtrip tests, and verifies formatting on Linux only (Windows checkouts can disagree with the in-repo encoding because of `core.autocrlf`, so format checks would fail spuriously there).
+- `ci.yml` builds and tests the Rust workspace and the .NET solution as independent jobs, each with Ubuntu, Windows, and macOS matrix entries so the Rust and .NET checks can run in parallel. Linux is the only Rust matrix entry that uses `--all-features`, because GStreamer dev packages are reliably installable from the system package manager only on Linux. Windows and macOS still build the `tracy` feature so it stays warning-free on those platforms. The Linux Rust job also installs Vulkan tooling so the `materials::registry` smoke test can find an adapter. The .NET job runs the generator's unit and roundtrip tests, and verifies formatting on Linux only (Windows checkouts can disagree with the in-repo encoding because of `core.autocrlf`, so format checks would fail spuriously there).
 
-Both workflows trigger on push to `main` or `master`, on pull requests, and on manual dispatch.
+The CI workflow triggers on push to `main` or `master`, on pull requests, and on manual dispatch.
 
 ---
 
