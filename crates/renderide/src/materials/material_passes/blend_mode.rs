@@ -66,25 +66,16 @@ impl MaterialBlendMode {
 /// material or the property block. `None` when no properties have been stored for that id.
 pub(crate) type PropertyMapRef<'a> = Option<&'a hashbrown::HashMap<i32, MaterialPropertyValue>>;
 
-/// Iterates `pids` against pre-fetched material / property-block inner maps doing only one
-/// inner-map lookup per side per id, matching the
+/// Iterates `pids` against pre-fetched material / property-block inner maps, matching the
 /// [`crate::materials::host_data::MaterialPropertyStore::get_merged`] "property block overrides
-/// material" semantics.
+/// material" semantics across all aliases.
 pub(crate) fn first_float_from_maps(
     material_map: PropertyMapRef<'_>,
     property_block_map: PropertyMapRef<'_>,
     pids: &[i32],
 ) -> Option<f32> {
-    pids.iter().find_map(|&pid| {
-        let v = property_block_map
-            .and_then(|m| m.get(&pid))
-            .or_else(|| material_map.and_then(|m| m.get(&pid)))?;
-        match v {
-            MaterialPropertyValue::Float(f) => Some(*f),
-            MaterialPropertyValue::Float4(v4) => Some(v4[0]),
-            _ => None,
-        }
-    })
+    first_float_from_map(property_block_map, pids)
+        .or_else(|| first_float_from_map(material_map, pids))
 }
 
 /// Like [`first_float_from_maps`] but reads `Float4` (vec4) values for `pids`. Used by the UI
@@ -94,14 +85,24 @@ pub(crate) fn first_vec4_from_maps(
     property_block_map: PropertyMapRef<'_>,
     pids: &[i32],
 ) -> Option<[f32; 4]> {
-    pids.iter().find_map(|&pid| {
-        let v = property_block_map
-            .and_then(|m| m.get(&pid))
-            .or_else(|| material_map.and_then(|m| m.get(&pid)))?;
-        match v {
-            MaterialPropertyValue::Float4(v4) => Some(*v4),
-            _ => None,
-        }
+    first_vec4_from_map(property_block_map, pids)
+        .or_else(|| first_vec4_from_map(material_map, pids))
+}
+
+fn first_float_from_map(map: PropertyMapRef<'_>, pids: &[i32]) -> Option<f32> {
+    let map = map?;
+    pids.iter().find_map(|&pid| match map.get(&pid)? {
+        MaterialPropertyValue::Float(f) => Some(*f),
+        MaterialPropertyValue::Float4(v4) => Some(v4[0]),
+        _ => None,
+    })
+}
+
+fn first_vec4_from_map(map: PropertyMapRef<'_>, pids: &[i32]) -> Option<[f32; 4]> {
+    let map = map?;
+    pids.iter().find_map(|&pid| match map.get(&pid)? {
+        MaterialPropertyValue::Float4(v4) => Some(*v4),
+        _ => None,
     })
 }
 

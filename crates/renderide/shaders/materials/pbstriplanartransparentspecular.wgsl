@@ -74,12 +74,9 @@ struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
-    @location(2) proj_pos: vec3<f32>,
-    @location(3) proj_n: vec3<f32>,
-    @location(4) @interpolate(flat) normal_to_world_x: vec3<f32>,
-    @location(5) @interpolate(flat) normal_to_world_y: vec3<f32>,
-    @location(6) @interpolate(flat) normal_to_world_z: vec3<f32>,
-    @location(7) @interpolate(flat) view_layer: u32,
+    @location(2) projection_n: vec3<f32>,
+    @location(3) proj_pos: vec3<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
 }
 
 struct SurfaceData {
@@ -92,26 +89,17 @@ struct SurfaceData {
     emission: vec3<f32>,
 }
 
-fn projection_normal_to_world(
-    n_proj: vec3<f32>,
-    normal_to_world_x: vec3<f32>,
-    normal_to_world_y: vec3<f32>,
-    normal_to_world_z: vec3<f32>,
-) -> vec3<f32> {
-    return normalize(mat3x3<f32>(normal_to_world_x, normal_to_world_y, normal_to_world_z) * n_proj);
-}
-
 fn sample_surface(
     world_n: vec3<f32>,
+    projection_n: vec3<f32>,
     proj_pos: vec3<f32>,
-    proj_n: vec3<f32>,
-    normal_to_world_x: vec3<f32>,
-    normal_to_world_y: vec3<f32>,
-    normal_to_world_z: vec3<f32>,
     front_facing: bool,
+    view_layer: u32,
 ) -> SurfaceData {
-    let uvs = ptri::build_planar_uvs(proj_pos, proj_n, mat._MainTex_ST);
-    let weights = ptri::triplanar_weights(proj_n, mat._TriBlendPower);
+    let object_space = kw_OBJECTSPACE();
+    let normal_map = kw_NORMALMAP();
+    let uvs = ptri::build_planar_uvs(proj_pos, projection_n, mat._MainTex_ST);
+    let weights = ptri::triplanar_weights(projection_n, mat._TriBlendPower);
 
     var c = mat._Color;
     if (kw_ALBEDOTEX()) {
@@ -137,16 +125,23 @@ fn sample_surface(
         emission = emission * ptri::sample_rgba(_EmissionMap, _EmissionMap_sampler, uvs, weights);
     }
 
-    let n_proj = ptri::sample_normal_projection(
-        kw_NORMALMAP(),
+    var n_world = ptri::sample_normal_projected(
+        normal_map,
         _NormalMap,
         _NormalMap_sampler,
         uvs,
         mat._NormalScale,
-        proj_n,
+        projection_n,
         weights,
     );
-    let n_world = projection_normal_to_world(n_proj, normal_to_world_x, normal_to_world_y, normal_to_world_z);
+    if (object_space) {
+        if (normal_map) {
+            let d = pd::get_draw(view_layer >> 1u);
+            n_world = normalize(mv::model_vector(d, n_world));
+        } else {
+            n_world = normalize(world_n);
+        }
+    }
     let n = ptri::flip_normal_for_back_face(n_world, world_n, front_facing);
 
     return SurfaceData(c.rgb, c.a, f0, roughness, occlusion, n, emission.rgb);
@@ -164,8 +159,7 @@ fn vs_main(
     let d = pd::get_draw(instance_index);
     let world_p = mv::world_position(d, pos);
     let wn = mv::world_normal(d, n);
-    let object_space = kw_OBJECTSPACE();
-    let proj_n = select(wn, normalize(transpose(d.normal_matrix) * wn), object_space);
+    let object_n = normalize(n.xyz);
 #ifdef MULTIVIEW
     let vp = mv::select_view_proj(d, view_idx);
 #else
@@ -176,11 +170,8 @@ fn vs_main(
     out.clip_pos = vp * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = wn;
-    out.proj_pos = select(world_p.xyz, pos.xyz, object_space);
-    out.proj_n = proj_n;
-    out.normal_to_world_x = select(vec3<f32>(1.0, 0.0, 0.0), d.model[0].xyz, object_space);
-    out.normal_to_world_y = select(vec3<f32>(0.0, 1.0, 0.0), d.model[1].xyz, object_space);
-    out.normal_to_world_z = select(vec3<f32>(0.0, 0.0, 1.0), d.model[2].xyz, object_space);
+    out.proj_pos = select(world_p.xyz, pos.xyz, kw_OBJECTSPACE());
+    out.projection_n = select(wn, object_n, kw_OBJECTSPACE());
 #ifdef MULTIVIEW
     out.view_layer = mv::packed_view_layer(instance_index, view_idx);
 #else
@@ -196,22 +187,11 @@ fn fs_forward_base(
     @builtin(front_facing) front_facing: bool,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
-    @location(2) proj_pos: vec3<f32>,
-    @location(3) proj_n: vec3<f32>,
-    @location(4) @interpolate(flat) normal_to_world_x: vec3<f32>,
-    @location(5) @interpolate(flat) normal_to_world_y: vec3<f32>,
-    @location(6) @interpolate(flat) normal_to_world_z: vec3<f32>,
-    @location(7) @interpolate(flat) view_layer: u32,
+    @location(2) projection_n: vec3<f32>,
+    @location(3) proj_pos: vec3<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let s = sample_surface(
-        world_n,
-        proj_pos,
-        proj_n,
-        normal_to_world_x,
-        normal_to_world_y,
-        normal_to_world_z,
-        front_facing,
-    );
+    let s = sample_surface(world_n, projection_n, proj_pos, front_facing, view_layer);
     let surface = psurf::specular(
         s.base_color,
         s.alpha,

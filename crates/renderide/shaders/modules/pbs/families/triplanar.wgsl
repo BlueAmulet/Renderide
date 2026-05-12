@@ -16,9 +16,9 @@ fn blend_rnm(n1_in: vec3<f32>, n2_in: vec3<f32>) -> vec3<f32> {
     return n1 * dot(n1, n2) / max(n1.z, 1e-4) - n2;
 }
 
-fn triplanar_weights(world_n: vec3<f32>, blend_power_in: f32) -> vec3<f32> {
+fn triplanar_weights(projection_n: vec3<f32>, blend_power_in: f32) -> vec3<f32> {
     let blend_power = max(blend_power_in, 0.0001);
-    let raw = pow(abs(world_n), vec3<f32>(blend_power));
+    let raw = pow(abs(projection_n), vec3<f32>(blend_power));
     let sum = max(raw.x + raw.y + raw.z, 1e-4);
     return raw / sum;
 }
@@ -27,15 +27,15 @@ fn triplanar_apply_st(uv_in: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
     return uv_in * st.xy + st.zy;
 }
 
-fn build_planar_uvs(proj_pos: vec3<f32>, proj_n: vec3<f32>, main_tex_st: vec4<f32>) -> PlanarUvs {
+fn build_planar_uvs(proj_pos: vec3<f32>, projection_n: vec3<f32>, main_tex_st: vec4<f32>) -> PlanarUvs {
     var uvs: PlanarUvs;
     uvs.uv_x = triplanar_apply_st(proj_pos.zy, main_tex_st);
     uvs.uv_y = triplanar_apply_st(proj_pos.xz, main_tex_st);
     uvs.uv_z = triplanar_apply_st(proj_pos.xy, main_tex_st);
     let axis_sign = vec3<f32>(
-        select(-1.0, 1.0, proj_n.x >= 0.0),
-        select(-1.0, 1.0, proj_n.y >= 0.0),
-        select(-1.0, 1.0, proj_n.z >= 0.0),
+        select(-1.0, 1.0, projection_n.x >= 0.0),
+        select(-1.0, 1.0, projection_n.y >= 0.0),
+        select(-1.0, 1.0, projection_n.z >= 0.0),
     );
     uvs.uv_x.x = uvs.uv_x.x * axis_sign.x;
     uvs.uv_y.x = uvs.uv_y.x * axis_sign.y;
@@ -51,16 +51,16 @@ fn sample_rgba(tex: texture_2d<f32>, samp: sampler, uvs: PlanarUvs, weights: vec
     return cx * weights.x + cy * weights.y + cz * weights.z;
 }
 
-fn sample_normal_projection(
+fn sample_normal_projected(
     enabled: bool,
     normal_tex: texture_2d<f32>,
     normal_samp: sampler,
     uvs: PlanarUvs,
     normal_scale: f32,
-    proj_n: vec3<f32>,
+    projection_n: vec3<f32>,
     weights: vec3<f32>,
 ) -> vec3<f32> {
-    let n_geo = normalize(proj_n);
+    let n_geo = normalize(projection_n);
     if (!enabled) {
         return n_geo;
     }
