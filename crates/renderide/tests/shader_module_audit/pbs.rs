@@ -2,6 +2,21 @@
 
 use super::*;
 
+fn pass_directives(src: &str) -> Vec<&str> {
+    src.lines()
+        .filter_map(|line| {
+            line.trim_start()
+                .strip_prefix("//#pass ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or(rest))
+        })
+        .collect()
+}
+
+fn assert_keyword_bit(src: &str, file_name: &str, constant_name: &str, bit_index: u32) {
+    let needle = format!("const {constant_name}: u32 = 1u << {bit_index}u;");
+    assert!(src.contains(&needle), "{file_name} must define `{needle}`");
+}
+
 #[test]
 fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
     let birp = module_source("lighting/birp.wgsl")?;
@@ -272,6 +287,152 @@ fn shared_pbs_lighting_roots_do_not_duplicate_clustered_lighting() -> io::Result
     Ok(())
 }
 
+#[test]
+fn pbs_61_70_transparent_stems_use_transparent_passes() -> io::Result<()> {
+    for file_name in [
+        "pbsrimtransparent.wgsl",
+        "pbsrimtransparentspecular.wgsl",
+        "pbsslicetransparent.wgsl",
+        "pbsslicetransparentspecular.wgsl",
+    ] {
+        let src = material_source(file_name)?;
+        assert_eq!(
+            pass_directives(&src),
+            vec!["forward_transparent"],
+            "{file_name} must use Unity alpha transparent pass defaults"
+        );
+    }
+
+    for file_name in [
+        "pbsrimtransparentzwrite.wgsl",
+        "pbsrimtransparentzwritespecular.wgsl",
+    ] {
+        let src = material_source(file_name)?;
+        assert_eq!(
+            pass_directives(&src),
+            vec!["depth_prepass", "forward_transparent"],
+            "{file_name} must keep the depth prepass before the transparent color pass"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pbs_slice_variant_bits_keep_froox_sorted_keyword_order() -> io::Result<()> {
+    let cases: &[(&str, &[(&str, u32)])] = &[
+        (
+            "pbsslice.wgsl",
+            &[
+                ("PBSSLICE_KW_ALBEDOTEX", 0),
+                ("PBSSLICE_KW_ALPHACLIP", 1),
+                ("PBSSLICE_KW_DETAIL_ALBEDOTEX", 2),
+                ("PBSSLICE_KW_DETAIL_NORMALMAP", 3),
+                ("PBSSLICE_KW_EMISSIONTEX", 4),
+                ("PBSSLICE_KW_METALLICMAP", 5),
+                ("PBSSLICE_KW_NORMALMAP", 6),
+                ("PBSSLICE_KW_OCCLUSION", 7),
+                ("PBSSLICE_KW_OBJECT_SPACE", 8),
+                ("PBSSLICE_KW_WORLD_SPACE", 9),
+            ],
+        ),
+        (
+            "pbsslicespecular.wgsl",
+            &[
+                ("PBSSLICESPECULAR_KW_ALBEDOTEX", 0),
+                ("PBSSLICESPECULAR_KW_ALPHACLIP", 1),
+                ("PBSSLICESPECULAR_KW_DETAIL_ALBEDOTEX", 2),
+                ("PBSSLICESPECULAR_KW_DETAIL_NORMALMAP", 3),
+                ("PBSSLICESPECULAR_KW_EMISSIONTEX", 4),
+                ("PBSSLICESPECULAR_KW_METALLICMAP", 5),
+                ("PBSSLICESPECULAR_KW_NORMALMAP", 6),
+                ("PBSSLICESPECULAR_KW_OCCLUSION", 7),
+                ("PBSSLICESPECULAR_KW_OBJECT_SPACE", 8),
+                ("PBSSLICESPECULAR_KW_WORLD_SPACE", 9),
+            ],
+        ),
+        (
+            "pbsslicetransparent.wgsl",
+            &[
+                ("PBSSLICETRANSPARENT_KW_ALBEDOTEX", 0),
+                ("PBSSLICETRANSPARENT_KW_DETAIL_ALBEDOTEX", 1),
+                ("PBSSLICETRANSPARENT_KW_DETAIL_NORMALMAP", 2),
+                ("PBSSLICETRANSPARENT_KW_EMISSIONTEX", 3),
+                ("PBSSLICETRANSPARENT_KW_METALLICMAP", 4),
+                ("PBSSLICETRANSPARENT_KW_NORMALMAP", 5),
+                ("PBSSLICETRANSPARENT_KW_OCCLUSION", 6),
+                ("PBSSLICETRANSPARENT_KW_OBJECT_SPACE", 7),
+                ("PBSSLICETRANSPARENT_KW_WORLD_SPACE", 8),
+            ],
+        ),
+        (
+            "pbsslicetransparentspecular.wgsl",
+            &[
+                ("PBSSLICETRANSPARENTSPECULAR_KW_ALBEDOTEX", 0),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_DETAIL_ALBEDOTEX", 1),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_DETAIL_NORMALMAP", 2),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_EMISSIONTEX", 3),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_METALLICMAP", 4),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_NORMALMAP", 5),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_OCCLUSION", 6),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_OBJECT_SPACE", 7),
+                ("PBSSLICETRANSPARENTSPECULAR_KW_WORLD_SPACE", 8),
+            ],
+        ),
+    ];
+
+    for (file_name, expected_bits) in cases {
+        let src = material_source(file_name)?;
+        for (constant_name, bit_index) in *expected_bits {
+            assert_keyword_bit(&src, file_name, constant_name, *bit_index);
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pbs_slice_specular_variants_drop_dead_specular_map_branch() -> io::Result<()> {
+    for file_name in ["pbsslicespecular.wgsl", "pbsslicetransparentspecular.wgsl"] {
+        let src = material_source(file_name)?;
+        assert!(
+            !src.contains("_SpecularMap: texture_2d") && !src.contains("_SpecularMap_sampler"),
+            "{file_name} must not bind _SpecularMap because Unity never declares _SPECULARMAP"
+        );
+        assert!(
+            !src.contains("textureSample(_SpecularMap"),
+            "{file_name} must not sample the dead _SPECULARMAP branch"
+        );
+        assert!(
+            src.contains("let spec = mat._SpecularColor;"),
+            "{file_name} must use _SpecularColor for specular f0 and smoothness"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pbsstencil_omits_dead_rim_emission_path() -> io::Result<()> {
+    let src = material_source("pbsstencil.wgsl")?;
+    for forbidden in [
+        "_RimColor",
+        "_RimPower",
+        "renderide::frame::globals",
+        "renderide::material::fresnel",
+        "rim_factor",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "pbsstencil.wgsl must not contain dead rim path term `{forbidden}`"
+        );
+    }
+    assert!(
+        src.contains("var emission = mat._EmissionColor.rgb;"),
+        "pbsstencil.wgsl must keep emission based on _EmissionColor"
+    );
+    Ok(())
+}
 
 #[test]
 fn pbs_dualsided_emission_is_keyword_gated_only() -> io::Result<()> {

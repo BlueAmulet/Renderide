@@ -1,13 +1,12 @@
 //! Unity surface shader `Shader "PBSSliceSpecular"`: SpecularSetup lighting with plane-based slicing.
 //!
 //! Sibling of [`pbsslice`](super::pbsslice); same `_Slicers[8]` plane evaluation and edge blending,
-//! but reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of
-//! `_Metallic` / `_MetallicMap`.
+//! but reads tinted f0 + smoothness from `_SpecularColor` instead of `_Metallic` / `_MetallicMap`.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`. PBSSliceSpecular's Unity source declares
 //! `#pragma multi_compile _ _METALLICMAP` even though this shader is specular (copy-paste from
-//! the metallic sibling), so the bitmask Froox emits keys the optional specular-map sample to the
-//! alphabetically-positioned `METALLICMAP` slot.
+//! the metallic sibling), but the only specular-map branch checks the undeclared `_SPECULARMAP`.
+//! The `_METALLICMAP` bit is reserved only to preserve sorted keyword positions.
 
 
 #import renderide::mesh::vertex as mv
@@ -45,8 +44,7 @@ const PBSSLICESPECULAR_KW_ALPHACLIP: u32 = 1u << 1u;
 const PBSSLICESPECULAR_KW_DETAIL_ALBEDOTEX: u32 = 1u << 2u;
 const PBSSLICESPECULAR_KW_DETAIL_NORMALMAP: u32 = 1u << 3u;
 const PBSSLICESPECULAR_KW_EMISSIONTEX: u32 = 1u << 4u;
-// Unity's pragma is `_ _METALLICMAP` even though this shader is specular; the bit gates
-// optional `_SpecularMap` sampling.
+// Unity's pragma is `_ _METALLICMAP`; the shader's `_SPECULARMAP` sampling branch is dead.
 const PBSSLICESPECULAR_KW_METALLICMAP: u32 = 1u << 5u;
 const PBSSLICESPECULAR_KW_NORMALMAP: u32 = 1u << 6u;
 const PBSSLICESPECULAR_KW_OCCLUSION: u32 = 1u << 7u;
@@ -62,12 +60,10 @@ const PBSSLICESPECULAR_KW_WORLD_SPACE: u32 = 1u << 9u;
 @group(1) @binding(6)  var _EmissionMap_sampler: sampler;
 @group(1) @binding(7)  var _OcclusionMap: texture_2d<f32>;
 @group(1) @binding(8)  var _OcclusionMap_sampler: sampler;
-@group(1) @binding(9)  var _SpecularMap: texture_2d<f32>;
-@group(1) @binding(10) var _SpecularMap_sampler: sampler;
-@group(1) @binding(11) var _DetailAlbedoMap: texture_2d<f32>;
-@group(1) @binding(12) var _DetailAlbedoMap_sampler: sampler;
-@group(1) @binding(13) var _DetailNormalMap: texture_2d<f32>;
-@group(1) @binding(14) var _DetailNormalMap_sampler: sampler;
+@group(1) @binding(9)  var _DetailAlbedoMap: texture_2d<f32>;
+@group(1) @binding(10) var _DetailAlbedoMap_sampler: sampler;
+@group(1) @binding(11) var _DetailNormalMap: texture_2d<f32>;
+@group(1) @binding(12) var _DetailNormalMap_sampler: sampler;
 
 fn pbs_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
@@ -184,10 +180,7 @@ fn fs_main(
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
-    var spec = mat._SpecularColor;
-    if (pbs_kw(PBSSLICESPECULAR_KW_METALLICMAP)) {
-        spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
-    }
+    let spec = mat._SpecularColor;
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let smoothness = clamp(spec.a, 0.0, 1.0);
     let roughness = psamp::roughness_from_smoothness(smoothness);

@@ -167,9 +167,9 @@ fn transparent_rgb_pass_ignores_material_render_state_overrides() {
     assert_eq!(pass.material_state, MaterialPassState::Static);
 }
 
-/// Verifies PBSRim transparent zwrite variants preserve their depth-only stem before color.
+/// Verifies PBSRim transparent zwrite variants preserve their depth-only stem before transparent color.
 #[test]
-fn pbsrim_zwrite_stems_keep_depth_prepass_before_forward() {
+fn pbsrim_zwrite_stems_keep_depth_prepass_before_transparent_forward() {
     for stem in [
         "pbsrimtransparentzwrite_default",
         "pbsrimtransparentzwritespecular_default",
@@ -177,7 +177,7 @@ fn pbsrim_zwrite_stems_keep_depth_prepass_before_forward() {
         let passes = crate::embedded_shaders::embedded_target_passes(stem);
         assert_eq!(passes.len(), 2, "{stem} should declare two passes");
         assert_eq!(passes[0].name, "depth_prepass");
-        assert_eq!(passes[1].name, "forward");
+        assert_eq!(passes[1].name, "forward_transparent");
 
         let state = MaterialRenderState {
             color_mask: Some(15),
@@ -234,6 +234,10 @@ fn selected_pbs_transparent_stems_keep_transparent_pass_defaults() {
         "pbsdisplacespeculartransparent_default",
         "pbsdistancelerptransparent_default",
         "pbsdistancelerpspeculartransparent_default",
+        "pbsrimtransparent_default",
+        "pbsrimtransparentspecular_default",
+        "pbsslicetransparent_default",
+        "pbsslicetransparentspecular_default",
     ] {
         let passes = crate::embedded_shaders::embedded_target_passes(stem);
         assert_eq!(
@@ -244,6 +248,24 @@ fn selected_pbs_transparent_stems_keep_transparent_pass_defaults() {
         assert_eq!(passes[0].name, "forward_transparent", "{stem}");
         assert!(!passes[0].depth_write, "{stem}");
         assert!(passes[0].blend.is_some(), "{stem}");
+    }
+
+    for stem in [
+        "pbsrimtransparentzwrite_default",
+        "pbsrimtransparentzwritespecular_default",
+    ] {
+        let passes = crate::embedded_shaders::embedded_target_passes(stem);
+        assert_eq!(
+            passes.len(),
+            2,
+            "{stem} should declare depth prepass then transparent forward pass"
+        );
+        assert_eq!(passes[0].name, "depth_prepass", "{stem}");
+        assert!(passes[0].depth_write, "{stem}");
+        assert_eq!(passes[0].write_mask, COLOR_WRITES_NONE, "{stem}");
+        assert_eq!(passes[1].name, "forward_transparent", "{stem}");
+        assert!(!passes[1].depth_write, "{stem}");
+        assert!(passes[1].blend.is_some(), "{stem}");
     }
 
     for stem in [
