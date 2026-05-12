@@ -60,6 +60,7 @@ impl RendererRuntime {
         &mut self,
         mode: FrameRenderMode<'a>,
         swapchain_extent_px: (u32, u32),
+        main_post_processing: ViewPostProcessing,
     ) -> Vec<FrameViewPlan<'a>> {
         let (includes_main, hmd_target) = match mode {
             FrameRenderMode::DesktopPlusSecondaries => (true, None),
@@ -91,7 +92,10 @@ impl RendererRuntime {
         views.append(&mut secondary_views);
 
         if includes_main {
-            views.push(self.build_main_swapchain_view(swapchain_extent_px));
+            views.push(self.build_main_swapchain_view_with_post_processing(
+                swapchain_extent_px,
+                main_post_processing,
+            ));
         }
 
         views
@@ -235,9 +239,21 @@ impl RendererRuntime {
     /// culling. The render graph resolves its own rendering extent from
     /// [`crate::render_graph::FrameViewTarget::Swapchain::extent_px`] at record time -- that is a
     /// separate concern from cull math, which has already run by then.
+    #[cfg(test)]
     pub(in crate::runtime) fn build_main_swapchain_view<'a>(
         &self,
         swapchain_extent_px: (u32, u32),
+    ) -> FrameViewPlan<'a> {
+        self.build_main_swapchain_view_with_post_processing(
+            swapchain_extent_px,
+            ViewPostProcessing::primary_view(),
+        )
+    }
+
+    fn build_main_swapchain_view_with_post_processing<'a>(
+        &self,
+        swapchain_extent_px: (u32, u32),
+        post_processing: ViewPostProcessing,
     ) -> FrameViewPlan<'a> {
         FrameViewPlan {
             host_camera: self.host_camera,
@@ -247,7 +263,7 @@ impl RendererRuntime {
             view_id: ViewId::Main,
             viewport_px: swapchain_extent_px,
             clear: FrameViewClear::skybox(),
-            post_processing: ViewPostProcessing::primary_view(),
+            post_processing,
             target: FrameViewPlanTarget::MainSwapchain,
         }
     }
@@ -278,6 +294,14 @@ mod tests {
 
     const TEST_EXTENT: (u32, u32) = (1920, 1080);
 
+    fn collect_default_desktop_views(runtime: &mut RendererRuntime) -> Vec<FrameViewPlan<'_>> {
+        runtime.collect_prepared_views(
+            FrameRenderMode::DesktopPlusSecondaries,
+            TEST_EXTENT,
+            ViewPostProcessing::primary_view(),
+        )
+    }
+
     #[test]
     fn secondary_cameras_use_master_msaa_policy() {
         assert_eq!(
@@ -294,8 +318,7 @@ mod tests {
     #[test]
     fn empty_scene_desktop_mode_yields_only_main_view() {
         let mut runtime = build_runtime();
-        let views =
-            runtime.collect_prepared_views(FrameRenderMode::DesktopPlusSecondaries, TEST_EXTENT);
+        let views = collect_default_desktop_views(&mut runtime);
         assert_eq!(views.len(), 1);
         assert!(matches!(
             views[0].target,
@@ -308,7 +331,11 @@ mod tests {
     #[test]
     fn empty_scene_vr_secondaries_only_yields_empty_vec() {
         let mut runtime = build_runtime();
-        let views = runtime.collect_prepared_views(FrameRenderMode::VrSecondariesOnly, TEST_EXTENT);
+        let views = runtime.collect_prepared_views(
+            FrameRenderMode::VrSecondariesOnly,
+            TEST_EXTENT,
+            ViewPostProcessing::primary_view(),
+        );
         assert!(
             views.is_empty(),
             "no HMD, no secondaries, and main swapchain excluded -- nothing to render"
@@ -320,8 +347,7 @@ mod tests {
         let mut runtime = build_runtime();
         runtime.host_camera.frame_index = 42;
         runtime.host_camera.desktop_fov_degrees = 75.0;
-        let views =
-            runtime.collect_prepared_views(FrameRenderMode::DesktopPlusSecondaries, TEST_EXTENT);
+        let views = collect_default_desktop_views(&mut runtime);
         let main = &views[0];
         assert_eq!(main.host_camera.frame_index, 42);
         assert_eq!(main.host_camera.desktop_fov_degrees, 75.0);
@@ -334,8 +360,11 @@ mod tests {
     #[test]
     fn main_view_viewport_matches_supplied_swapchain_extent() {
         let mut runtime = build_runtime();
-        let views =
-            runtime.collect_prepared_views(FrameRenderMode::DesktopPlusSecondaries, (1280, 720));
+        let views = runtime.collect_prepared_views(
+            FrameRenderMode::DesktopPlusSecondaries,
+            (1280, 720),
+            ViewPostProcessing::primary_view(),
+        );
         let main = views
             .iter()
             .find(|v| matches!(v.target, FrameViewPlanTarget::MainSwapchain))
@@ -351,6 +380,17 @@ mod tests {
         assert_eq!(view.output_depth_mode(), OutputDepthMode::DesktopSingle);
         assert_eq!(view.clear.mode, crate::shared::CameraClearMode::Skybox);
         assert_eq!(view.post_processing, ViewPostProcessing::primary_view());
+    }
+
+    #[test]
+    fn main_view_can_disable_post_processing_for_headless_output() {
+        let runtime = build_runtime();
+        let view = runtime.build_main_swapchain_view_with_post_processing(
+            TEST_EXTENT,
+            ViewPostProcessing::disabled(),
+        );
+
+        assert_eq!(view.post_processing, ViewPostProcessing::disabled());
     }
 
     /// Secondary view identity follows camera identity even when cameras share a render target.

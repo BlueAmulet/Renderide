@@ -21,20 +21,22 @@ pub struct TickResult {
     pub other_messages: Vec<RendererCommand>,
 }
 
-/// Lockstep driver shared across the harness. Owns pending scene deltas plus the per-tick frame
+/// Lockstep driver shared across the harness. Owns scene state plus the per-tick frame
 /// counter.
 pub struct LockstepDriver {
     /// Frame index for the next `FrameSubmitData` we send.
     frame_index: i32,
     /// Fixed scalar fields applied to every `FrameSubmitData` (clip planes, FOV, `vr_active` flag).
     pub frame_scalars: FrameSubmitScalars,
-    /// Pending render-space delta. `None` during the handshake / asset-upload phases; switch to
-    /// `Some(...)` once assets have uploaded and the harness needs to submit scene additions.
+    /// Current render-space state. `None` during the handshake / asset-upload phases; switch to
+    /// `Some(...)` once assets have uploaded and the harness needs the renderer to keep a scene.
     ///
-    /// Render-space updates carry delta lists such as mesh additions. They must be sent once and
-    /// then cleared, otherwise the renderer appends another copy of the same renderable every
-    /// lockstep frame while the harness waits for PNG readback.
-    pending_render_space: Option<RenderSpaceUpdate>,
+    /// The renderer treats `FrameSubmitData::render_spaces` as the authoritative submitted set for
+    /// that frame and removes spaces absent from a later submit, so the mock host repeats the active
+    /// space every frame while the scene should stay alive. The nested update payloads are deltas,
+    /// though; after a successful submit, [`Self::send_frame_submit`] clears them so later frames
+    /// preserve the render space without replaying additions.
+    current_render_space: Option<RenderSpaceUpdate>,
 }
 
 /// Static per-frame scalar fields that the harness sets once and reuses across every submit.
@@ -71,14 +73,14 @@ impl LockstepDriver {
         Self {
             frame_index: 0,
             frame_scalars,
-            pending_render_space: None,
+            current_render_space: None,
         }
     }
 
-    /// Latches a render-space update so the next successful `FrameSubmitData` embeds it.
-    /// Pass `None` to clear the pending update before it is submitted.
+    /// Sets the render-space state embedded in every subsequent `FrameSubmitData`.
+    /// Pass `None` to clear the scene.
     pub fn set_render_space(&mut self, update: Option<RenderSpaceUpdate>) {
-        self.pending_render_space = update;
+        self.current_render_space = update;
     }
 
     /// Current frame index that will be assigned to the **next** outgoing `FrameSubmitData`.
@@ -87,7 +89,7 @@ impl LockstepDriver {
     }
 
     /// Drains both `...S` queues and replies to every `FrameStartData` with a `FrameSubmitData`
-    /// built from the next pending scene delta, if any.
+    /// built from the current scene state, if any.
     pub(super) fn tick(&mut self, queues: &mut HostDualQueueIpc) -> TickResult {
         let mut drained = Vec::new();
         queues.poll_into(&mut drained);
@@ -107,20 +109,46 @@ impl LockstepDriver {
     }
 
     fn send_frame_submit(&mut self, queues: &mut HostDualQueueIpc) -> bool {
-        let render_space = self.pending_render_space.take();
-        let submit =
-            build_frame_submit_data(self.frame_index, &self.frame_scalars, render_space.as_ref());
+        let submit = build_frame_submit_data(
+            self.frame_index,
+            &self.frame_scalars,
+            self.current_render_space.as_ref(),
+        );
         let sent = queues.send_primary(RendererCommand::FrameSubmitData(submit));
         if sent {
+            if let Some(render_space) = self.current_render_space.as_mut() {
+                clear_render_space_delta_payload(render_space);
+            }
             self.frame_index = self.frame_index.wrapping_add(1);
         } else {
-            self.pending_render_space = render_space;
             logger::warn!(
                 "Lockstep: failed to send FrameSubmitData (queue full?); frame_index unchanged"
             );
         }
         sent
     }
+}
+
+fn clear_render_space_delta_payload(update: &mut RenderSpaceUpdate) {
+    update.transforms_update = None;
+    update.mesh_renderers_update = None;
+    update.skinned_mesh_renderers_update = None;
+    update.lights_update = None;
+    update.cameras_update = None;
+    update.camera_portals_update = None;
+    update.reflection_probes_update = None;
+    update.reflection_probe_sh2_taks = None;
+    update.layers_update = None;
+    update.billboard_buffers_update = None;
+    update.mesh_render_buffers_update = None;
+    update.trail_renderers_update = None;
+    update.lights_buffer_renderers_update = None;
+    update.render_transform_overrides_update = None;
+    update.render_material_overrides_update = None;
+    update.blit_to_displays_update = None;
+    update.lod_group_update = None;
+    update.gaussian_splat_renderers_update = None;
+    update.reflection_probe_render_tasks.clear();
 }
 
 /// Builds a [`FrameSubmitData`] message with the supplied frame index, scalar fields, and
@@ -164,7 +192,7 @@ mod tests {
     fn driver_starts_at_frame_index_zero() {
         let d = LockstepDriver::new(FrameSubmitScalars::default());
         assert_eq!(d.current_frame_index(), 0);
-        assert!(d.pending_render_space.is_none());
+        assert!(d.current_render_space.is_none());
     }
 
     #[test]
@@ -181,9 +209,9 @@ mod tests {
     fn set_render_space_to_some_then_none_round_trip() {
         let mut d = LockstepDriver::new(FrameSubmitScalars::default());
         d.set_render_space(Some(RenderSpaceUpdate::default()));
-        assert!(d.pending_render_space.is_some());
+        assert!(d.current_render_space.is_some());
         d.set_render_space(None);
-        assert!(d.pending_render_space.is_none());
+        assert!(d.current_render_space.is_none());
     }
 
     #[test]
@@ -196,17 +224,64 @@ mod tests {
     }
 
     #[test]
-    fn pending_render_space_is_consumed_for_one_submit_payload() {
+    fn current_render_space_persists_across_submit_payloads() {
         let mut d = LockstepDriver::new(FrameSubmitScalars::default());
         d.set_render_space(Some(RenderSpaceUpdate::default()));
 
-        let render_space = d.pending_render_space.take();
-        let first = build_frame_submit_data(0, &d.frame_scalars, render_space.as_ref());
+        let first = build_frame_submit_data(0, &d.frame_scalars, d.current_render_space.as_ref());
         assert_eq!(first.render_spaces.len(), 1);
-        assert!(d.pending_render_space.is_none());
+        assert!(d.current_render_space.is_some());
 
-        let second = build_frame_submit_data(1, &d.frame_scalars, d.pending_render_space.as_ref());
-        assert!(second.render_spaces.is_empty());
+        let second = build_frame_submit_data(1, &d.frame_scalars, d.current_render_space.as_ref());
+        assert_eq!(second.render_spaces.len(), 1);
+    }
+
+    #[test]
+    fn render_space_delta_payload_can_be_cleared_for_steady_submit() {
+        let mut update = RenderSpaceUpdate {
+            transforms_update: Some(Default::default()),
+            mesh_renderers_update: Some(Default::default()),
+            skinned_mesh_renderers_update: Some(Default::default()),
+            lights_update: Some(Default::default()),
+            cameras_update: Some(Default::default()),
+            camera_portals_update: Some(Default::default()),
+            reflection_probes_update: Some(Default::default()),
+            reflection_probe_sh2_taks: Some(Default::default()),
+            layers_update: Some(Default::default()),
+            billboard_buffers_update: Some(Default::default()),
+            mesh_render_buffers_update: Some(Default::default()),
+            trail_renderers_update: Some(Default::default()),
+            lights_buffer_renderers_update: Some(Default::default()),
+            render_transform_overrides_update: Some(Default::default()),
+            render_material_overrides_update: Some(Default::default()),
+            blit_to_displays_update: Some(Default::default()),
+            lod_group_update: Some(Default::default()),
+            gaussian_splat_renderers_update: Some(Default::default()),
+            reflection_probe_render_tasks: vec![Default::default()],
+            ..Default::default()
+        };
+
+        clear_render_space_delta_payload(&mut update);
+
+        assert!(update.transforms_update.is_none());
+        assert!(update.mesh_renderers_update.is_none());
+        assert!(update.skinned_mesh_renderers_update.is_none());
+        assert!(update.lights_update.is_none());
+        assert!(update.cameras_update.is_none());
+        assert!(update.camera_portals_update.is_none());
+        assert!(update.reflection_probes_update.is_none());
+        assert!(update.reflection_probe_sh2_taks.is_none());
+        assert!(update.layers_update.is_none());
+        assert!(update.billboard_buffers_update.is_none());
+        assert!(update.mesh_render_buffers_update.is_none());
+        assert!(update.trail_renderers_update.is_none());
+        assert!(update.lights_buffer_renderers_update.is_none());
+        assert!(update.render_transform_overrides_update.is_none());
+        assert!(update.render_material_overrides_update.is_none());
+        assert!(update.blit_to_displays_update.is_none());
+        assert!(update.lod_group_update.is_none());
+        assert!(update.gaussian_splat_renderers_update.is_none());
+        assert!(update.reflection_probe_render_tasks.is_empty());
     }
 
     #[test]

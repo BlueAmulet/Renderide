@@ -48,6 +48,10 @@ impl RenderBackend {
         settings: &PostProcessingSettings,
     ) -> PostProcessingSettings {
         let mut effective = settings.clone();
+        if self.headless {
+            effective.enabled = false;
+            return effective;
+        }
         if effective.gtao.enabled
             && let Some(limits) = self.gpu_limits()
             && !gpu_supports_gtao(limits.as_ref())

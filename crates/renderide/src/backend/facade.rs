@@ -103,6 +103,8 @@ pub struct RenderBackend {
     surface_format: Option<wgpu::TextureFormat>,
     /// Live settings for per-frame graph parameters (scene HDR format, etc.); set in [`Self::attach`].
     renderer_settings: Option<RendererSettingsHandle>,
+    /// Whether this backend is attached to a headless offscreen target.
+    headless: bool,
 }
 
 impl Default for RenderBackend {
@@ -126,6 +128,7 @@ impl RenderBackend {
             occlusion: OcclusionSystem::new(),
             surface_format: None,
             renderer_settings: None,
+            headless: false,
         }
     }
 
