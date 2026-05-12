@@ -24,9 +24,17 @@ pub const RENDERER_CONFIG_H: f32 = 400.0;
 pub const FRAME_TIMING_RESERVE_H: f32 = 140.0;
 /// First-use width of the **Renderide debug** main panel (anchored to the viewport's top-right
 /// corner). Pulled out of the panel render path so layout decisions live in one place.
-pub const MAIN_DEBUG_PANEL_W: f32 = 760.0;
+///
+/// Sized for the 9-column Draw State table at comfortable density (~120 px per stretch column
+/// after the three fixed columns).
+pub const MAIN_DEBUG_PANEL_W: f32 = 1120.0;
 /// First-use height of the **Renderide debug** main panel.
-pub const MAIN_DEBUG_PANEL_H: f32 = 460.0;
+pub const MAIN_DEBUG_PANEL_H: f32 = 540.0;
+/// Minimum panel width enforced via `size_constraints` (overrides any narrower size persisted in
+/// `imgui.ini`). Keep close to [`MAIN_DEBUG_PANEL_W`] so tables don't collapse columns.
+pub const MAIN_DEBUG_PANEL_MIN_W: f32 = 1080.0;
+/// Minimum panel height enforced via `size_constraints`.
+pub const MAIN_DEBUG_PANEL_MIN_H: f32 = 280.0;
 
 /// First-use position for **Frame timing**: directly under **Renderer config** (same column).
 pub fn frame_timing_xy() -> [f32; 2] {
@@ -90,7 +98,7 @@ impl WindowAnchor {
                 WindowSlot {
                     position: [panel_x, MARGIN],
                     size: [width, MAIN_DEBUG_PANEL_H],
-                    size_min: [420.0, 160.0],
+                    size_min: [MAIN_DEBUG_PANEL_MIN_W, MAIN_DEBUG_PANEL_MIN_H],
                     size_max: [1.0e9, 1.0e9],
                 }
             }

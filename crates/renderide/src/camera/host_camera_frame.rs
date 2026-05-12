@@ -108,8 +108,13 @@ impl HostCameraFrame {
     }
 
     /// Returns the dedicated screen-overlay orthographic projection.
+    ///
+    /// Half-height is **0.5** to match the Unity reference `OverlayCamera` (`Size: 0.5`,
+    /// `Orthographic`). The host's `RadiantDash.OnChanges` scales `VisualsRoot` to fit a 1-unit
+    /// tall view volume, so any other half-height makes the dash render at the wrong scale (e.g.
+    /// half-screen with the previous 1.0).
     pub fn overlay_projection(viewport: Viewport, fallback_clip: CameraClipPlanes) -> Mat4 {
-        OrthographicProjectionSpec::new(1.0, fallback_clip).projection(viewport)
+        OrthographicProjectionSpec::new(0.5, fallback_clip).projection(viewport)
     }
 
     /// Resolves the world-space origin used for view-distance sorting.
