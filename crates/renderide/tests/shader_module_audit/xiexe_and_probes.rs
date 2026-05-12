@@ -58,7 +58,8 @@ fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
 
     for required in [
-        "fn xiexe_specular_reflectance(s: xb::SurfaceData) -> vec3<f32> {",
+        "let specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);",
+        "let roughness = clamp(1.0 - remap_specular_area(xb::mat._SpecularArea), 0.045, 1.0);",
         "fn primary_direct_specular_terms(s: xb::SurfaceData, view_dir: vec3<f32>) -> DirectSpecularTerms {",
         "let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);",
         "let energy_compensation = brdf::energy_compensation_from_dfg(dfg, specular_reflectance);",
@@ -79,7 +80,9 @@ fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
 
     for forbidden in [
         "fn direct_specular_xstoon2(",
-        "let roughness = 1.0 - smoothness;",
+        "fn xiexe_specular_reflectance(",
+        "fn primary_specular_roughness(",
+        "0.16 * reflectivity * reflectivity",
         "exp2((-5.55473 * ldh) - (6.98316 * ldh))",
         "let reflection = v_term * d_term * 3.14159265;",
         "smooth_specular",
@@ -109,6 +112,7 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
         "let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);",
         "let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);",
         "let spec = rprobe::indirect_specular_with_energy(",
+        "let specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);",
         "spec = mix(spec, spec * dominant_ramp, roughness);",
         "col + reflection * clamp(s.reflectivity_mask, 0.0, 1.0)",
     ] {
@@ -117,6 +121,11 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
             "Xiexe PBR reflections must contain `{required}`"
         );
     }
+
+    assert!(
+        !lighting_src.contains("xiexe_specular_reflectance"),
+        "Indirect specular must not call the removed `xiexe_specular_reflectance` helper"
+    );
 
     let pbr_branch_pos = lighting_src
         .find("let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());")

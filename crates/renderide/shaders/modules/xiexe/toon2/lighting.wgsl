@@ -84,32 +84,30 @@ fn remap_specular_area(area: f32) -> f32 {
     return remapped * (1.7 - 0.7 * remapped);
 }
 
-/// Metallic workflow F0 used by Xiexe's PBS-grade specular paths.
-fn xiexe_specular_reflectance(s: xb::SurfaceData) -> vec3<f32> {
-    let reflectivity = clamp(s.reflectivity, 0.0, 1.0);
-    let dielectric_reflectance = 0.16 * reflectivity * reflectivity;
-    return vec3<f32>(dielectric_reflectance * (1.0 - s.metallic)) + s.diffuse_color * s.metallic;
-}
-
-/// Perceptual roughness for the primary Xiexe specular lobe.
-fn primary_specular_roughness() -> f32 {
-    return clamp(remap_specular_area(xb::mat._SpecularArea), 0.045, 1.0);
-}
-
 /// Direct-specular inputs derived once per fragment for the primary lobe.
 struct DirectSpecularTerms {
-    /// Primary lobe F0.
+    /// Primary lobe F0, identical to PBSMetallic's `metallic_f0(base, metallic)`.
     specular_reflectance: vec3<f32>,
-    /// Primary lobe perceptual roughness.
+    /// Primary lobe perceptual roughness, derived from Unity's `_SpecularArea`
+    /// (labeled "Specular Smoothness" in `XSToon2.0.shader:59`) via
+    /// `roughness = 1 - remap_specular_area(_SpecularArea)`.
     roughness: f32,
     /// Multiple-scattering energy compensation sampled from the frame DFG LUT.
     energy_compensation: vec3<f32>,
 }
 
 /// Resolves the primary direct-specular terms shared by every clustered light.
+///
+/// F0 matches PBSMetallic's `metallic_f0` (dielectric = 0.04, metallic = base color)
+/// so a default Xiexe material with `_SpecularIntensity = 1`, `_SpecularAlbedoTint = 0`,
+/// and a white ramp lights identically to a matched PBSMetallic ball. The `_Reflectivity`
+/// scalar is intentionally not fed into F0 here -- in Unity 2.0
+/// (`XSLightingFunctions.cginc`) `_Reflectivity` is a leftover dial that does not
+/// participate in the BRDF; only `_ReflectivityMask.r` gates the additive indirect-spec
+/// blend (`cginc:412`).
 fn primary_direct_specular_terms(s: xb::SurfaceData, view_dir: vec3<f32>) -> DirectSpecularTerms {
-    let specular_reflectance = xiexe_specular_reflectance(s);
-    let roughness = primary_specular_roughness();
+    let specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);
+    let roughness = clamp(1.0 - remap_specular_area(xb::mat._SpecularArea), 0.045, 1.0);
     let n_dot_v = clamp(dot(s.normal, view_dir), 0.0, 1.0);
     let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);
     let energy_compensation = brdf::energy_compensation_from_dfg(dfg, specular_reflectance);
@@ -311,7 +309,7 @@ fn indirect_specular(
     dominant_light_col_atten: vec3<f32>,
     dominant_ramp: vec3<f32>,
 ) -> vec3<f32> {
-    let specular_reflectance = xiexe_specular_reflectance(s);
+    let specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);
 
     var spec = indirect_reflection_branch(
         s,
