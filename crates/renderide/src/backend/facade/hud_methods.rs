@@ -102,11 +102,6 @@ impl RenderBackend {
         self.diagnostics.clear_stats_snapshots();
     }
 
-    /// Clears the **Scene transforms** HUD payload.
-    pub(crate) fn clear_debug_hud_scene_transforms_snapshot(&mut self) {
-        self.diagnostics.clear_scene_transforms_snapshot();
-    }
-
     pub(crate) fn last_world_mesh_draw_stats(&self) -> WorldMeshDrawStats {
         self.diagnostics.last_world_mesh_draw_stats()
     }

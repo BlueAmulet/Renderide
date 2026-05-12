@@ -116,7 +116,12 @@ impl StatsSection for FrameLineSection {
             return;
         };
         kv_table(ui, "frame_kv", |ui| {
-            kv_colored(ui, "Frame index", TAG_HEADLINE, format!("{}", r.last_frame_index));
+            kv_colored(
+                ui,
+                "Frame index",
+                TAG_HEADLINE,
+                format!("{}", r.last_frame_index),
+            );
             kv_colored(
                 ui,
                 "Viewport",
@@ -140,7 +145,11 @@ impl StatsSection for GpuAdapterSection {
             kv(
                 ui,
                 "Class",
-                &format!("{}  ({:?})", device_type_label(r.adapter_device_type), r.adapter_backend),
+                &format!(
+                    "{}  ({:?})",
+                    device_type_label(r.adapter_device_type),
+                    r.adapter_backend
+                ),
             );
             kv(
                 ui,
@@ -307,22 +316,20 @@ impl StatsSection for DrawStatsSection {
             kv_split3(
                 ui,
                 "Batches",
-                m.batch_total,
-                m.batch_main,
-                m.batch_overlay,
-                "total",
-                "main",
-                "overlay",
+                [
+                    (m.batch_total, "total"),
+                    (m.batch_main, "main"),
+                    (m.batch_overlay, "overlay"),
+                ],
             );
             kv_split3(
                 ui,
                 "Draws",
-                m.draws_total,
-                m.draws_main,
-                m.draws_overlay,
-                "total",
-                "main",
-                "overlay",
+                [
+                    (m.draws_total, "total"),
+                    (m.draws_main, "main"),
+                    (m.draws_overlay, "overlay"),
+                ],
             );
             kv(
                 ui,
@@ -348,9 +355,16 @@ impl StatsSection for DrawStatsSection {
             kv(
                 ui,
                 "GPU instances emitted",
-                &format!("{}  (avg {:.2} / batch)", m.gpu_instances_emitted, compression),
+                &format!(
+                    "{}  (avg {:.2} / batch)",
+                    m.gpu_instances_emitted, compression
+                ),
             );
-            kv(ui, "Pipeline pass submits", &format!("{}", m.submitted_pipeline_pass_total));
+            kv(
+                ui,
+                "Pipeline pass submits",
+                &format!("{}", m.submitted_pipeline_pass_total),
+            );
             kv(
                 ui,
                 "Frustum cull",
@@ -396,8 +410,7 @@ impl StatsSection for HealthSection {
                 "IPC fail streak",
                 format!(
                     "primary={}  background={}",
-                    q.ipc_primary_consecutive_fail_streak,
-                    q.ipc_background_consecutive_fail_streak,
+                    q.ipc_primary_consecutive_fail_streak, q.ipc_background_consecutive_fail_streak,
                 ),
                 u64::from(q.ipc_primary_consecutive_fail_streak)
                     + u64::from(q.ipc_background_consecutive_fail_streak),
@@ -405,26 +418,26 @@ impl StatsSection for HealthSection {
             kv_err_or_dim(
                 ui,
                 "Frame submit apply failures",
-                format!("{}", f.ipc_health.frame_submit_apply_failures),
-                f.ipc_health.frame_submit_apply_failures.into(),
+                f.ipc_health.frame_submit_apply_failures.to_string(),
+                f.ipc_health.frame_submit_apply_failures,
             );
             kv_err_or_dim(
                 ui,
                 "OpenXR wait_frame errs",
-                format!("{}", f.xr_health.xr_wait_frame_failures),
-                f.xr_health.xr_wait_frame_failures.into(),
+                f.xr_health.xr_wait_frame_failures.to_string(),
+                f.xr_health.xr_wait_frame_failures,
             );
             kv_err_or_dim(
                 ui,
                 "OpenXR locate_views errs",
-                format!("{}", f.xr_health.xr_locate_views_failures),
-                f.xr_health.xr_locate_views_failures.into(),
+                f.xr_health.xr_locate_views_failures.to_string(),
+                f.xr_health.xr_locate_views_failures,
             );
             kv_err_or_dim(
                 ui,
                 "Unhandled IPC cmds",
-                format!("{}", f.ipc_health.unhandled_ipc_command_event_total),
-                f.ipc_health.unhandled_ipc_command_event_total.into(),
+                f.ipc_health.unhandled_ipc_command_event_total.to_string(),
+                f.ipc_health.unhandled_ipc_command_event_total,
             );
             kv(
                 ui,
@@ -477,7 +490,8 @@ impl StatsSection for ResourcesSection {
                         "Textures",
                         &format!(
                             "{n} GPU resident  /  {} CPU registered  /  {} mip0 ready",
-                            f.mesh_draw.textures_cpu_registered, f.mesh_draw.textures_cpu_mip0_ready
+                            f.mesh_draw.textures_cpu_registered,
+                            f.mesh_draw.textures_cpu_mip0_ready
                         ),
                     );
                 } else {
@@ -503,9 +517,21 @@ impl StatsSection for MaterialsSection {
             return;
         };
         kv_table(ui, "materials_kv", |ui| {
-            kv(ui, "Property maps", &format!("{}", r.material_property_slots));
-            kv(ui, "Property blocks", &format!("{}", r.property_block_slots));
-            kv(ui, "Shader bindings", &format!("{}", r.material_shader_bindings));
+            kv(
+                ui,
+                "Property maps",
+                &format!("{}", r.material_property_slots),
+            );
+            kv(
+                ui,
+                "Property blocks",
+                &format!("{}", r.property_block_slots),
+            );
+            kv(
+                ui,
+                "Shader bindings",
+                &format!("{}", r.material_shader_bindings),
+            );
         });
     }
 }
@@ -591,26 +617,18 @@ fn kv_colored(ui: &imgui::Ui, key: &str, color: [f32; 4], value: String) {
 /// 3-segment value: `<a> <a_label>  |  <b> <b_label>  |  <c> <c_label>`, with the third segment
 /// (typically "overlay") highlighted when non-zero so the user can spot overlay-layer presence at
 /// a glance.
-fn kv_split3(
-    ui: &imgui::Ui,
-    key: &str,
-    a: usize,
-    b: usize,
-    c: usize,
-    a_label: &str,
-    b_label: &str,
-    c_label: &str,
-) {
+fn kv_split3(ui: &imgui::Ui, key: &str, values: [(usize, &str); 3]) {
+    let [(a, a_label), (b, b_label), (c, c_label)] = values;
     ui.table_next_row();
     ui.table_next_column();
     ui.text_disabled(key);
     ui.table_next_column();
-    ui.text(format!("{:>5} {}  |  {:>5} {}  |  ", a, a_label, b, b_label));
+    ui.text(format!("{a:>5} {a_label}  |  {b:>5} {b_label}  |  "));
     ui.same_line();
     if c > 0 {
-        ui.text_colored(TAG_OK, format!("{:>5} {}", c, c_label));
+        ui.text_colored(TAG_OK, format!("{c:>5} {c_label}"));
     } else {
-        ui.text_disabled(format!("{:>5} {}", c, c_label));
+        ui.text_disabled(format!("{c:>5} {c_label}"));
     }
 }
 

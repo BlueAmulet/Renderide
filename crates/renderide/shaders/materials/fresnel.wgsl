@@ -186,6 +186,7 @@ fn fs_main(in: mv::WorldColorVertexOutput) -> @location(0) vec4<f32> {
     if (kw_MUL_ALPHA_INTENSITY()) {
         color.a = ma::alpha_intensity_squared(color.a, color.rgb);
     }
+    color.a = pow(color.a, mat._GammaCurve);
 
     return rg::retain_globals_additive(color);
 }

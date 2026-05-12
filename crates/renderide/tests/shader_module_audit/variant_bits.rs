@@ -251,6 +251,163 @@ fn depthprojection_uses_reserved_variant_bits() -> io::Result<()> {
 }
 
 #[test]
+fn fresnel_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "fresnel.wgsl",
+        &[
+            "_ALPHATEST",
+            "_MASK_TEXTURE_CLIP",
+            "_MASK_TEXTURE_MUL",
+            "_MUL_ALPHA_INTENSITY",
+            "_NORMALMAP",
+            "_POLARUV",
+            "_TEXTURE",
+            "_VERTEX_HDRSRGB_COLOR",
+            "_VERTEX_LINEAR_COLOR",
+            "_VERTEX_SRGB_COLOR",
+            "_VERTEXCOLORS",
+        ],
+        &[
+            ("FRESNEL_KW_ALPHATEST", 0),
+            ("FRESNEL_KW_MASK_TEXTURE_CLIP", 1),
+            ("FRESNEL_KW_MASK_TEXTURE_MUL", 2),
+            ("FRESNEL_KW_MUL_ALPHA_INTENSITY", 3),
+            ("FRESNEL_KW_NORMALMAP", 4),
+            ("FRESNEL_KW_POLARUV", 5),
+            ("FRESNEL_KW_TEXTURE", 6),
+            ("FRESNEL_KW_VERTEX_HDRSRGB_COLOR", 7),
+            ("FRESNEL_KW_VERTEX_LINEAR_COLOR", 8),
+            ("FRESNEL_KW_VERTEX_SRGB_COLOR", 9),
+            ("FRESNEL_KW_VERTEXCOLORS", 10),
+        ],
+    )
+}
+
+#[test]
+fn fresnel_applies_unity_alpha_output_after_alpha_intensity() -> io::Result<()> {
+    let src = material_source("fresnel.wgsl")?;
+    let alpha_intensity = src
+        .find("color.a = ma::alpha_intensity_squared(color.a, color.rgb);")
+        .expect("fresnel.wgsl must apply _MUL_ALPHA_INTENSITY before final alpha output");
+    let alpha_output = src
+        .find("color.a = pow(color.a, mat._GammaCurve);")
+        .expect("fresnel.wgsl must apply Unity EVR_APPLY_ALPHA_OUTPUT parity");
+    let ret = src
+        .find("return rg::retain_globals_additive(color);")
+        .expect("fresnel.wgsl must return the final color");
+
+    assert!(
+        alpha_intensity < alpha_output && alpha_output < ret,
+        "fresnel.wgsl must apply final alpha gamma after alpha intensity and before return",
+    );
+    Ok(())
+}
+
+#[test]
+fn fresnellerp_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "fresnellerp.wgsl",
+        &[
+            "_LERPTEX",
+            "_LERPTEX_POLARUV",
+            "_MULTI_VALUES",
+            "_NORMALMAP",
+            "_TEXTURE",
+        ],
+        &[
+            ("FRESNELLERP_KW_LERPTEX", 0),
+            ("FRESNELLERP_KW_LERPTEX_POLARUV", 1),
+            ("FRESNELLERP_KW_MULTI_VALUES", 2),
+            ("FRESNELLERP_KW_NORMALMAP", 3),
+            ("FRESNELLERP_KW_TEXTURE", 4),
+        ],
+    )
+}
+
+#[test]
+fn fresnellerp_preserves_unity_lerp_extrapolation() -> io::Result<()> {
+    let src = material_source("fresnellerp.wgsl")?;
+    assert!(
+        src.contains("fn compute_lerp(uv: vec2<f32>) -> f32")
+            && src.contains("return l;")
+            && !src.contains("return clamp(l"),
+        "fresnellerp.wgsl must not clamp _Lerp; Unity lerp extrapolates outside [0, 1]",
+    );
+    Ok(())
+}
+
+#[test]
+fn gamma_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader("gamma.wgsl", &["RECTCLIP"], &[("GAMMA_KW_RECTCLIP", 0)])
+}
+
+#[test]
+fn gamma_preserves_unity_pow_operands() -> io::Result<()> {
+    let src = material_source("gamma.wgsl")?;
+    assert!(
+        src.contains("pow(c.rgb, vec3<f32>(mat._Gamma))")
+            && !src.contains("max(mat._Gamma")
+            && !src.contains("max(c.rgb"),
+        "gamma.wgsl must match Unity's direct pow(c.rgb, _Gamma)",
+    );
+    Ok(())
+}
+
+#[test]
+fn getdepth_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "getdepth.wgsl",
+        &["CLIP", "RECTCLIP"],
+        &[("GETDEPTH_KW_CLIP", 0), ("GETDEPTH_KW_RECTCLIP", 1)],
+    )
+}
+
+#[test]
+fn getdepth_preserves_unity_clip_division() -> io::Result<()> {
+    let src = material_source("getdepth.wgsl")?;
+    assert!(
+        src.contains("depth = depth - mat._ClipMin;")
+            && src.contains("depth = depth / (mat._ClipMax - mat._ClipMin);")
+            && !src.contains("max(mat._ClipMax - mat._ClipMin"),
+        "getdepth.wgsl must match Unity's unguarded clip-range division",
+    );
+    Ok(())
+}
+
+#[test]
+fn grayscale_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "grayscale.wgsl",
+        &["GRADIENT", "RECTCLIP"],
+        &[("GRAYSCALE_KW_GRADIENT", 0), ("GRAYSCALE_KW_RECTCLIP", 1)],
+    )
+}
+
+#[test]
+fn hsv_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader("hsv.wgsl", &["RECTCLIP"], &[("HSV_KW_RECTCLIP", 0)])
+}
+
+#[test]
+fn hsv_uses_unity_branch_color_conversion() -> io::Result<()> {
+    let src = source_file(manifest_dir().join("shaders/modules/post/filter_math.wgsl"))?;
+    for required in [
+        "var min_channel: f32;",
+        "var max_channel: f32;",
+        "if (delta != 0.0)",
+        "let del_rgb = (hsv.zzz - rgb + vec3<f32>(3.0 * delta)) / (6.0 * delta);",
+        "let var_i = floor(var_h);",
+        "rgb = vec3<f32>(var_3, var_1, hsv.z);",
+    ] {
+        assert!(
+            src.contains(required),
+            "filter_math.wgsl must contain Unity HSV conversion fragment `{required}`",
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn pixelate_uses_reserved_variant_bits() -> io::Result<()> {
     assert_variant_bits_shader(
         "pixelate.wgsl",
@@ -333,6 +490,21 @@ fn blur_perobject_is_source_alias_wrapper() -> io::Result<()> {
 #[test]
 fn channelmatrix_perobject_is_source_alias_wrapper() -> io::Result<()> {
     assert_source_alias_wrapper("channelmatrix_perobject.wgsl", "channelmatrix")
+}
+
+#[test]
+fn gamma_perobject_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("gamma_perobject.wgsl", "gamma")
+}
+
+#[test]
+fn getdepth_perobject_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("getdepth_perobject.wgsl", "getdepth")
+}
+
+#[test]
+fn grayscale_perobject_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("grayscale_perobject.wgsl", "grayscale")
 }
 
 #[test]

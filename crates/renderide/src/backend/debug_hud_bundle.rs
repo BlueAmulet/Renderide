@@ -182,13 +182,6 @@ impl DebugHudBundle {
         }
     }
 
-    /// Clears the **Scene transforms** HUD payload.
-    pub(crate) fn clear_scene_transforms_snapshot(&mut self) {
-        if let Some(hud) = self.hud.as_mut() {
-            hud.clear_scene_transforms_snapshot();
-        }
-    }
-
     pub(crate) fn set_last_world_mesh_draw_stats(&mut self, stats: WorldMeshDrawStats) {
         self.last_world_mesh_draw_stats = stats;
     }
