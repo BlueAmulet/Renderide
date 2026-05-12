@@ -63,7 +63,7 @@ pub fn spawn_output_drainer(
     log_path: PathBuf,
     reader: impl Read + Send + 'static,
     prefix: &'static str,
-) {
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut file = match fs::OpenOptions::new()
             .create(true)
@@ -83,7 +83,7 @@ pub fn spawn_output_drainer(
             let _ = file.flush();
             line.clear();
         }
-    });
+    })
 }
 
 /// Configures stdio pipes and working directory for a Host launch.
@@ -402,8 +402,8 @@ mod tests {
             std::env::temp_dir().join(format!("bootstrapper_drainer_{}.log", std::process::id()));
         let _ = fs::remove_file(&log_path);
         let input = b"line one\nline two\n";
-        spawn_output_drainer(log_path.clone(), Cursor::new(input), "[P]");
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        let handle = spawn_output_drainer(log_path.clone(), Cursor::new(input), "[P]");
+        handle.join().expect("drain output");
         let out = fs::read_to_string(&log_path).expect("read log");
         assert!(out.contains("[P] line one"));
         assert!(out.contains("[P] line two"));
@@ -417,8 +417,8 @@ mod tests {
             std::process::id()
         ));
         let _ = fs::remove_file(&log_path);
-        spawn_output_drainer(log_path.clone(), Cursor::new(b"  padded  \r\n"), "[P]");
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        let handle = spawn_output_drainer(log_path.clone(), Cursor::new(b"  padded  \r\n"), "[P]");
+        handle.join().expect("drain output");
         let out = fs::read_to_string(&log_path).expect("read log");
         assert!(out.contains("[P]   padded"));
         assert!(!out.contains('\r'));

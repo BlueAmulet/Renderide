@@ -9,7 +9,6 @@ use crate::backend::frame_gpu::{
 use crate::gpu::GpuContext;
 use crate::materials::MaterialSystem;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
-use crate::shared::RenderSH2;
 use crate::skybox::ibl_cache::{
     SkyboxIblCache, SkyboxIblKey, build_key, clamp_face_size, mip_extent, mip_levels_for_edge,
 };
@@ -21,10 +20,7 @@ use super::captures::{
     RuntimeReflectionProbeCaptureStore,
 };
 use super::selection::{ReflectionProbeFrameSelection, SpatialProbe};
-use super::source::{
-    metadata_for_spatial, resolve_probe_source, resolve_space_skybox_fallback_source,
-    skybox_fallback_metadata, spatial_probe_for_state,
-};
+use super::source::{metadata_for_spatial, resolve_probe_source, spatial_probe_for_state};
 
 /// Default destination face size for reflection-probe IBL bakes.
 const DEFAULT_REFLECTION_PROBE_FACE_SIZE: u32 = 256;
@@ -124,15 +120,7 @@ impl ReflectionProbeSpecularSystem {
         collected.ready.sort_unstable_by_key(|probe| {
             (probe.identity.space_id.0, probe.identity.renderable_index)
         });
-        collected
-            .skybox_fallbacks
-            .sort_unstable_by_key(|fallback| fallback.space_id.0);
-        self.sync_atlas_and_selection(
-            params.gpu,
-            face_size,
-            collected.ready,
-            collected.skybox_fallbacks,
-        );
+        self.sync_atlas_and_selection(params.gpu, face_size, collected.ready);
     }
 
     fn collect_probe_resources(
@@ -147,29 +135,6 @@ impl ReflectionProbeSpecularSystem {
             };
             if !space.is_active() {
                 continue;
-            }
-            if let Some(source) = resolve_space_skybox_fallback_source(
-                space.skybox_material_asset_id(),
-                params.materials,
-                params.assets,
-            ) {
-                let key = build_key(&source, face_size);
-                collected.active_keys.insert(key.clone());
-                let sh2 = params
-                    .reflection_probe_sh2_enabled
-                    .then(|| params.sh2_system.ensure_ibl_source(space_id.0, &source))
-                    .flatten();
-                self.ibl_cache
-                    .ensure_source(params.gpu, key.clone(), source);
-                if let Some(cube) = self.ibl_cache.completed_cube(&key) {
-                    collected.skybox_fallbacks.push(ReadySkyboxFallback {
-                        space_id,
-                        key,
-                        texture: cube.texture.clone(),
-                        mip_levels: cube.mip_levels,
-                        sh2,
-                    });
-                }
             }
             for probe in space.reflection_probes() {
                 let identity = ProbeIdentity {
@@ -248,11 +213,10 @@ impl ReflectionProbeSpecularSystem {
         gpu: &GpuContext,
         face_size: u32,
         mut ready: Vec<ReadyProbe>,
-        mut skybox_fallbacks: Vec<ReadySkyboxFallback>,
     ) {
         let max_slots = max_atlas_slots(gpu.limits());
         if max_slots <= 1 {
-            self.selection.rebuild_spatial(Vec::new(), Vec::new());
+            self.selection.rebuild_spatial(Vec::new());
             return;
         }
         let usable_slots = usize::from(max_slots.saturating_sub(FIRST_PROBE_ATLAS_SLOT));
@@ -264,31 +228,20 @@ impl ReflectionProbeSpecularSystem {
             );
             ready.truncate(usable_slots);
         }
-        let fallback_slots = usable_slots.saturating_sub(ready.len());
-        if skybox_fallbacks.len() > fallback_slots {
-            logger::warn!(
-                "reflection probes: {} ready skybox fallbacks exceed remaining atlas capacity {}; truncating",
-                skybox_fallbacks.len(),
-                fallback_slots
-            );
-            skybox_fallbacks.truncate(fallback_slots);
-        }
-        let used_slots = ready.len() + skybox_fallbacks.len();
+        let used_slots = ready.len();
         let required_slots = (used_slots + usize::from(FIRST_PROBE_ATLAS_SLOT)).max(1);
         self.ensure_atlas(gpu.device(), face_size, required_slots as u16);
 
         let Some(atlas) = self.atlas.as_mut() else {
-            self.selection.rebuild_spatial(Vec::new(), Vec::new());
+            self.selection.rebuild_spatial(Vec::new());
             return;
         };
         let mip_levels = atlas.mip_levels;
         let mut metadata = vec![GpuReflectionProbeMetadata::default(); atlas.capacity as usize];
         let mut copy_jobs = Vec::new();
         let mut selectable = Vec::with_capacity(ready.len());
-        let mut next_slot = FIRST_PROBE_ATLAS_SLOT;
         for (i, mut probe) in ready.into_iter().enumerate() {
             let slot = FIRST_PROBE_ATLAS_SLOT + i as u16;
-            next_slot = slot + 1;
             if atlas.keys[slot as usize].as_ref() != Some(&probe.key) {
                 atlas.keys[slot as usize] = Some(probe.key.clone());
                 copy_jobs.push(AtlasCopyJob {
@@ -301,26 +254,9 @@ impl ReflectionProbeSpecularSystem {
             metadata[slot as usize] = probe.metadata;
             selectable.push((probe.identity.space_id, probe.spatial));
         }
-        let mut skybox_fallback_slots = Vec::with_capacity(skybox_fallbacks.len());
-        for fallback in skybox_fallbacks {
-            let slot = next_slot;
-            next_slot = next_slot.saturating_add(1);
-            if atlas.keys[slot as usize].as_ref() != Some(&fallback.key) {
-                atlas.keys[slot as usize] = Some(fallback.key.clone());
-                copy_jobs.push(AtlasCopyJob {
-                    slot,
-                    texture: fallback.texture.clone(),
-                    mip_levels: fallback.mip_levels.min(mip_levels),
-                });
-            }
-            metadata[slot as usize] =
-                skybox_fallback_metadata(fallback.mip_levels, fallback.sh2.as_ref());
-            skybox_fallback_slots.push((fallback.space_id, slot));
-        }
         self.write_metadata(gpu.queue(), &metadata);
         self.encode_atlas_copies(gpu, face_size, mip_levels, copy_jobs);
-        self.selection
-            .rebuild_spatial(selectable, skybox_fallback_slots);
+        self.selection.rebuild_spatial(selectable);
     }
 
     fn ensure_atlas(&mut self, device: &wgpu::Device, face_size: u32, required_slots: u16) {
@@ -535,18 +471,9 @@ struct ReadyProbe {
     spatial: SpatialProbe,
 }
 
-struct ReadySkyboxFallback {
-    space_id: RenderSpaceId,
-    key: SkyboxIblKey,
-    texture: Arc<wgpu::Texture>,
-    mip_levels: u32,
-    sh2: Option<RenderSH2>,
-}
-
 #[derive(Default)]
 struct CollectedProbeResources {
     active_keys: HashSet<SkyboxIblKey>,
     active_capture_keys: HashSet<RuntimeReflectionProbeCaptureKey>,
     ready: Vec<ReadyProbe>,
-    skybox_fallbacks: Vec<ReadySkyboxFallback>,
 }

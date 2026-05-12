@@ -97,10 +97,11 @@ fn start_host_with_drainers(
     logger::info!("Host stdout/stderr log path: {}", host_log_path.display());
 
     if let Some(stdout) = child.stdout.take() {
-        host::spawn_output_drainer(host_log_path.clone(), stdout, "[Host stdout]");
+        let _stdout_drainer =
+            host::spawn_output_drainer(host_log_path.clone(), stdout, "[Host stdout]");
     }
     if let Some(stderr) = child.stderr.take() {
-        host::spawn_output_drainer(host_log_path, stderr, "[Host stderr]");
+        let _stderr_drainer = host::spawn_output_drainer(host_log_path, stderr, "[Host stderr]");
     }
 
     Ok(child)

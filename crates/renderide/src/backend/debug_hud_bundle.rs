@@ -204,6 +204,13 @@ impl DebugHudBundle {
         }
     }
 
+    /// Clears the **Scene transforms** HUD payload.
+    pub(crate) fn clear_scene_transforms_snapshot(&mut self) {
+        if let Some(hud) = self.hud.as_mut() {
+            hud.clear_scene_transforms_snapshot();
+        }
+    }
+
     pub(crate) fn set_texture_debug_snapshot(&mut self, snapshot: TextureDebugSnapshot) {
         if let Some(hud) = self.hud.as_mut() {
             hud.set_texture_debug_snapshot(snapshot);

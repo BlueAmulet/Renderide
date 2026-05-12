@@ -118,6 +118,11 @@ impl RenderBackend {
         self.diagnostics.set_scene_transforms_snapshot(snapshot);
     }
 
+    /// Clears the **Scene transforms** HUD payload.
+    pub(crate) fn clear_debug_hud_scene_transforms_snapshot(&mut self) {
+        self.diagnostics.clear_scene_transforms_snapshot();
+    }
+
     /// Updates the **Textures** Dear ImGui window payload for the next composite pass.
     pub(crate) fn set_debug_hud_texture_debug_snapshot(
         &mut self,

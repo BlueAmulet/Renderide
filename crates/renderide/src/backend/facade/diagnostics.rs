@@ -145,6 +145,11 @@ impl BackendDiagnostics {
         self.debug_hud.set_scene_transforms_snapshot(snapshot);
     }
 
+    /// Clears scene transform diagnostics.
+    pub(super) fn clear_scene_transforms_snapshot(&mut self) {
+        self.debug_hud.clear_scene_transforms_snapshot();
+    }
+
     /// Stores texture diagnostics for the next HUD frame.
     pub(super) fn set_texture_debug_snapshot(&mut self, snapshot: TextureDebugSnapshot) {
         self.debug_hud.set_texture_debug_snapshot(snapshot);

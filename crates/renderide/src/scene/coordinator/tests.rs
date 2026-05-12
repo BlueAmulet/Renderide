@@ -104,23 +104,4 @@ impl SceneCoordinator {
             },
         );
     }
-
-    /// Stamps a single `LayerType` assignment onto an existing seeded space (unit tests only).
-    ///
-    /// Marks both [`RenderSpaceState::layer_index_dirty`] and
-    /// [`RenderSpaceState::hierarchy_dirty`] so the next query rebuilds caches.
-    pub(crate) fn test_push_layer_assignment(
-        &mut self,
-        id: RenderSpaceId,
-        node_id: i32,
-        layer: crate::shared::LayerType,
-    ) {
-        if let Some(space) = self.spaces.get_mut(&id) {
-            space
-                .layer_assignments
-                .push(crate::scene::render_space::LayerAssignmentEntry { node_id, layer });
-            space.layer_index_dirty = true;
-            space.hierarchy_dirty = true;
-        }
-    }
 }

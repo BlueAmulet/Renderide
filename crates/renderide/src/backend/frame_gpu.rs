@@ -24,7 +24,6 @@ use super::frame_gpu_error::FrameGpuInitError;
 pub(crate) use crate::gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT,
     REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
-    REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
 };
 pub(crate) use empty_material::EmptyMaterialBindGroup;
 use ibl_dfg::create_ibl_dfg_lut;

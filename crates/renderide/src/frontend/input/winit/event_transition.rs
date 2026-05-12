@@ -7,6 +7,9 @@ use winit::keyboard::PhysicalKey;
 use super::key_map::winit_key_to_renderite_key;
 use crate::shared::Key;
 
+const HOST_SCROLL_LINE_UNIT: f32 = 120.0;
+const PIXELS_PER_IMGUI_WHEEL_UNIT: f32 = 70.0;
+
 /// Mouse button storage slot in [`super::WindowInputAccumulator`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MouseButtonSlot {
@@ -68,12 +71,24 @@ pub(crate) fn mouse_button_transition(
     })
 }
 
-/// Converts winit scroll units into host scroll delta.
-pub(crate) fn scroll_delta_from_wheel(delta: &MouseScrollDelta) -> Vec2 {
-    const SCROLL_SCALE: f32 = 120.0;
+/// Converts winit scroll units into the host-compatible scroll delta.
+pub(crate) fn host_scroll_delta_from_wheel(delta: &MouseScrollDelta) -> Vec2 {
     match delta {
-        MouseScrollDelta::LineDelta(x, y) => Vec2::new(*x * SCROLL_SCALE, *y * SCROLL_SCALE),
+        MouseScrollDelta::LineDelta(x, y) => {
+            Vec2::new(*x * HOST_SCROLL_LINE_UNIT, *y * HOST_SCROLL_LINE_UNIT)
+        }
         MouseScrollDelta::PixelDelta(p) => Vec2::new(p.x as f32, p.y as f32),
+    }
+}
+
+/// Converts winit scroll units into Dear ImGui wheel units.
+pub(crate) fn imgui_scroll_delta_from_wheel(delta: &MouseScrollDelta) -> Vec2 {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => Vec2::new(*x, *y),
+        MouseScrollDelta::PixelDelta(p) => Vec2::new(
+            p.x as f32 / PIXELS_PER_IMGUI_WHEEL_UNIT,
+            p.y as f32 / PIXELS_PER_IMGUI_WHEEL_UNIT,
+        ),
     }
 }
 
@@ -128,8 +143,22 @@ mod tests {
 
     #[test]
     fn line_scroll_scales_to_pixels() {
-        let delta = scroll_delta_from_wheel(&MouseScrollDelta::LineDelta(1.0, -2.0));
+        let delta = host_scroll_delta_from_wheel(&MouseScrollDelta::LineDelta(1.0, -2.0));
         assert_eq!(delta, Vec2::new(120.0, -240.0));
+    }
+
+    #[test]
+    fn line_scroll_maps_directly_to_imgui_wheel_units() {
+        let delta = imgui_scroll_delta_from_wheel(&MouseScrollDelta::LineDelta(1.0, -2.0));
+        assert_eq!(delta, Vec2::new(1.0, -2.0));
+    }
+
+    #[test]
+    fn pixel_scroll_maps_to_fractional_imgui_wheel_units() {
+        let delta = imgui_scroll_delta_from_wheel(&MouseScrollDelta::PixelDelta(
+            winit::dpi::PhysicalPosition::new(35.0, -70.0),
+        ));
+        assert_eq!(delta, Vec2::new(0.5, -1.0));
     }
 
     #[test]

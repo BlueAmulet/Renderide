@@ -177,6 +177,11 @@ impl DebugHud {
         self.scene_transforms = sample;
     }
 
+    /// Clears the **Scene transforms** window payload.
+    pub fn clear_scene_transforms_snapshot(&mut self) {
+        self.scene_transforms = SceneTransformsSnapshot::default();
+    }
+
     /// Stores texture pool rows for the **Textures** window.
     pub fn set_texture_debug_snapshot(&mut self, sample: TextureDebugSnapshot) {
         self.texture_debug = sample;
