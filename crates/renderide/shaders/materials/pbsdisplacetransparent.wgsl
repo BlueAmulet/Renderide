@@ -16,10 +16,11 @@
 #import renderide::draw::per_draw as pd
 #import renderide::pbs::displace as pdisp
 #import renderide::pbs::lighting as plight
+#import renderide::pbs::normal as pnorm
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::variant_bits as vb
+#import renderide::core::normal_decode as nd
 #import renderide::core::uv as uvu
 
 struct PbsDisplaceTransparentMaterial {
@@ -95,20 +96,23 @@ fn kw_VERTEX_OFFSET() -> bool { return pbsdispt_kw(PBSDISPT_KW_VERTEX_OFFSET); }
 fn kw_VERTEX_POS_OFFSET() -> bool { return pbsdispt_kw(PBSDISPT_KW_VERTEX_POS_OFFSET); }
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
-    var ts_n = psamp::sample_optional_world_normal(
-        kw_NORMALMAP(),
-        _NormalMap,
-        _NormalMap_sampler,
-        uv_main,
-        0.0,
+    if (!kw_NORMALMAP()) {
+        var n = normalize(world_n);
+        if (!front_facing) {
+            n = -n;
+        }
+        return n;
+    }
+
+    let tbn = pnorm::orthonormal_tbn(world_n, world_t);
+    var ts_n = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uv_main),
         mat._NormalScale,
-        world_n,
-        world_t,
     );
     if (!front_facing) {
         ts_n.z = -ts_n.z;
     }
-    return ts_n;
+    return normalize(tbn * ts_n);
 }
 
 @vertex
@@ -193,8 +197,7 @@ fn shade(
     if (kw_ALBEDOTEX()) {
         c = c * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
-    let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main);
-    if (kw_ALPHACLIP() && clip_alpha <= mat._AlphaClip) {
+    if (kw_ALPHACLIP() && c.a <= mat._AlphaClip) {
         discard;
     }
 

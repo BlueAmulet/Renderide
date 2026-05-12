@@ -13,7 +13,6 @@
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::surface as psurf
-#import renderide::material::alpha_clip_sample as acs
 #import renderide::core::uv as uvu
 #import renderide::core::normal_decode as nd
 
@@ -65,13 +64,21 @@ fn pbs_kw(mask: u32) -> bool {
 }
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
-    let tbn = pnorm::visible_side_tbn(world_n, world_t, front_facing);
-    var ts_n = vec3<f32>(0.0, 0.0, 1.0);
-    if (pbs_kw(PBSDUALSIDED_KW_NORMALMAP)) {
-        ts_n = nd::decode_ts_normal_with_placeholder_sample(
-            textureSample(_NormalMap, _NormalMap_sampler, uv_main),
-            mat._NormalScale,
-        );
+    if (!pbs_kw(PBSDUALSIDED_KW_NORMALMAP)) {
+        var n = normalize(world_n);
+        if (!front_facing) {
+            n = -n;
+        }
+        return n;
+    }
+
+    let tbn = pnorm::orthonormal_tbn(world_n, world_t);
+    var ts_n = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uv_main),
+        mat._NormalScale,
+    );
+    if (!front_facing) {
+        ts_n.z = -ts_n.z;
     }
     return normalize(tbn * ts_n);
 }
@@ -92,15 +99,7 @@ fn sample_surface(
     if (pbs_kw(PBSDUALSIDED_KW_VCOLOR_ALBEDO)) {
         albedo = albedo * vertex_color;
     }
-    let vertex_alpha = select(1.0, vertex_color.a, pbs_kw(PBSDUALSIDED_KW_VCOLOR_ALBEDO));
-    let clip_alpha = select(
-        albedo.a,
-        mat._Color.a
-            * vertex_alpha
-            * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
-        pbs_kw(PBSDUALSIDED_KW_ALBEDOTEX),
-    );
-    if (pbs_kw(PBSDUALSIDED_KW_ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
+    if (pbs_kw(PBSDUALSIDED_KW_ALPHACLIP) && albedo.a <= mat._AlphaClip) {
         discard;
     }
 
