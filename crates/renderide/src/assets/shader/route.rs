@@ -279,4 +279,16 @@ mod tests {
         assert_eq!(r.shader_variant_bits, Some(0x2202));
         assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
     }
+
+    #[test]
+    fn stem_prefix_accepts_unlit_texture_variant_bits() {
+        let u = ShaderUpload {
+            asset_id: 13,
+            file: Some(format!("{RENDERIDE_TEST_STEM_PREFIX}Unlit_00000200.shader")),
+        };
+        let r = resolve_shader_upload(&u);
+        assert_eq!(r.shader_asset_name.as_deref(), Some("unlit"));
+        assert_eq!(r.shader_variant_bits, Some(0x200));
+        assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
+    }
 }

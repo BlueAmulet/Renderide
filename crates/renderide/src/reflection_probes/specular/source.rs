@@ -167,12 +167,17 @@ pub(super) fn spatial_probe_for_state(
 pub(super) fn metadata_for_spatial(
     spatial: &SpatialProbe,
     state: ReflectionProbeState,
-    sh2: &RenderSH2,
+    sh2: Option<&RenderSH2>,
 ) -> GpuReflectionProbeMetadata {
     let flags = if reflection_probe_use_box_projection(state.flags) {
         REFLECTION_PROBE_METADATA_BOX_PROJECTION
     } else {
         0
+    };
+    let sh2_source = if sh2.is_some() {
+        REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL
+    } else {
+        0.0
     };
     GpuReflectionProbeMetadata {
         box_min: [
@@ -188,13 +193,8 @@ pub(super) fn metadata_for_spatial(
             0.0,
         ],
         position: [spatial.center.x, spatial.center.y, spatial.center.z, 0.0],
-        params: [
-            state.intensity.max(0.0),
-            0.0,
-            flags as f32,
-            REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
-        ],
-        sh2: pack_render_sh2_raw(sh2),
+        params: [state.intensity.max(0.0), 0.0, flags as f32, sh2_source],
+        sh2: sh2.map_or([[0.0; 4]; 9], pack_render_sh2_raw),
     }
 }
 
@@ -295,6 +295,22 @@ mod tests {
     }
 
     #[test]
+    fn spatial_probe_metadata_without_sh2_keeps_specular_enabled() {
+        let spatial = probe(0, 3, 0, Vec3::splat(-1.0), Vec3::splat(1.0));
+        let state = ReflectionProbeState {
+            flags: 0b100,
+            r#type: ReflectionProbeType::OnChanges,
+            intensity: 1.0,
+            ..ReflectionProbeState::default()
+        };
+
+        let metadata = metadata_for_spatial(&spatial, state, None);
+
+        assert_eq!(metadata.params, [1.0, 0.0, 1.0, 0.0]);
+        assert_eq!(metadata.sh2, [[0.0; 4]; 9]);
+    }
+
+    #[test]
     fn skybox_only_spatial_probe_metadata_marks_local_sh2_source() {
         let spatial = probe(0, 3, 0, Vec3::splat(-1.0), Vec3::splat(1.0));
         let sh = RenderSH2 {
@@ -308,7 +324,7 @@ mod tests {
             ..ReflectionProbeState::default()
         };
 
-        let metadata = metadata_for_spatial(&spatial, state, &sh);
+        let metadata = metadata_for_spatial(&spatial, state, Some(&sh));
 
         assert_eq!(
             metadata.params[3],
@@ -330,7 +346,7 @@ mod tests {
             ..ReflectionProbeState::default()
         };
 
-        let metadata = metadata_for_spatial(&spatial, state, &sh);
+        let metadata = metadata_for_spatial(&spatial, state, Some(&sh));
 
         assert_eq!(
             metadata.params[3],
@@ -349,7 +365,7 @@ mod tests {
                 intensity: 1.0,
                 ..ReflectionProbeState::default()
             },
-            &sh,
+            Some(&sh),
         );
         let negative = metadata_for_spatial(
             &spatial,
@@ -358,7 +374,7 @@ mod tests {
                 intensity: 1.0,
                 ..ReflectionProbeState::default()
             },
-            &sh,
+            Some(&sh),
         );
 
         assert_eq!(metadata.box_min[3], 2.5);

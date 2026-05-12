@@ -136,6 +136,7 @@ impl RendererRuntime {
                 renderer_settings,
                 config_save_path,
                 suppress_renderer_config_disk_writes,
+                headless: gpu.is_headless(),
             },
             shm,
             ipc,

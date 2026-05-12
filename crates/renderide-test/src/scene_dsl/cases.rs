@@ -86,8 +86,8 @@ pub fn unlit_sphere() -> IntegrationCase {
 }
 
 /// Procedural torus rendered with an embedded unlit shader (`Unlit.shader` resolved through
-/// the test-only `RENDERIDE_TEST_STEM:` sentinel) and the CPU-generated Perlin noise bound
-/// to the material's `_Tex` slot via the IPC upload chain
+/// the test-only `RENDERIDE_TEST_STEM:` sentinel with the `_TEXTURE` variant bit) and the
+/// CPU-generated Perlin noise bound to the material's `_Tex` slot via the IPC upload chain
 /// (`SetTexture2D{Format,Properties,Data}`, `MaterialPropertyIdRequest`, then a
 /// `MaterialsUpdateBatch` carrying `SetShader` / `SetTexture` / `SetFloat4` opcodes). The
 /// same Perlin PNG is also written to the per-case output dir as a side artifact so

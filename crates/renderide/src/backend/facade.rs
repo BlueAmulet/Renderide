@@ -103,6 +103,8 @@ pub struct RenderBackend {
     surface_format: Option<wgpu::TextureFormat>,
     /// Live settings for per-frame graph parameters (scene HDR format, etc.); set in [`Self::attach`].
     renderer_settings: Option<RendererSettingsHandle>,
+    /// Whether this backend is attached to a headless offscreen target.
+    headless: bool,
 }
 
 impl Default for RenderBackend {
@@ -126,6 +128,7 @@ impl RenderBackend {
             occlusion: OcclusionSystem::new(),
             surface_format: None,
             renderer_settings: None,
+            headless: false,
         }
     }
 
@@ -207,6 +210,15 @@ impl RenderBackend {
             .and_then(|h| h.read().ok())
             .map(|s| s.post_processing.auto_exposure)
             .unwrap_or_default()
+    }
+
+    /// Snapshot of the live reflection-probe SH2 experimental toggle.
+    pub(crate) fn reflection_probe_sh2_enabled(&self) -> bool {
+        self.renderer_settings
+            .as_ref()
+            .and_then(|h| h.read().ok())
+            .map(|s| s.experimental.reflection_probe_sh2_enabled)
+            .unwrap_or(crate::config::ExperimentalSettings::default().reflection_probe_sh2_enabled)
     }
 
     /// Count of host Texture2D asset ids that have received a [`crate::shared::SetTexture2DFormat`] (CPU-side table).
@@ -299,12 +311,14 @@ impl RenderBackend {
         scene: &crate::scene::SceneCoordinator,
         render_context: crate::shared::RenderingContext,
     ) {
+        let reflection_probe_sh2_enabled = self.reflection_probe_sh2_enabled();
         let resources = self.reflection_probes.maintain_specular_jobs(
             gpu,
             scene,
             &self.materials,
             &self.asset_transfers,
             render_context,
+            reflection_probe_sh2_enabled,
         );
         let _ = self
             .frame_services

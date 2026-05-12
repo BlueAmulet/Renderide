@@ -79,7 +79,7 @@ pub fn check(
 
 /// Returns [`HarnessError::FlatImage`] when every channel's min/max spread is at most
 /// [`FLAT_CHANNEL_RANGE_MAX`] (clear color or single flat fill).
-fn reject_flat_image(img: &RgbaImage, path: &Path) -> Result<(), HarnessError> {
+pub(crate) fn reject_flat_image(img: &RgbaImage, path: &Path) -> Result<(), HarnessError> {
     if let Some(color) = flat_sample_rgba_if_nearly_uniform(img) {
         return Err(HarnessError::FlatImage {
             path: path.to_path_buf(),

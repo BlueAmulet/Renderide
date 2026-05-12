@@ -11,4 +11,5 @@ pub(crate) use captures::{
     RuntimeReflectionProbeCaptureStore,
 };
 pub use selection::{ReflectionProbeDrawSelection, ReflectionProbeFrameSelection};
+pub(crate) use system::ReflectionProbeSpecularMaintainParams;
 pub use system::ReflectionProbeSpecularSystem;

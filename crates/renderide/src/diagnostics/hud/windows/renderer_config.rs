@@ -1,7 +1,7 @@
 //! **Renderer config** HUD window -- editable [`crate::config::RendererSettings`] with immediate
 //! disk sync.
 //!
-//! Merges what used to live in three files (the window envelope, the four-tab body, and the
+//! Merges what used to live in three files (the window envelope, the five-tab body, and the
 //! Post-Processing tab body) into one [`HudWindow`] impl with private section helpers per tab.
 
 use std::io;
@@ -122,7 +122,7 @@ impl HudWindow for RendererConfigWindow {
     }
 }
 
-/// Body of **Renderer config**: tabbed groups (Display / Rendering / Debug / Post-Processing) and
+/// Body of **Renderer config**: tabbed groups (Display / Rendering / Debug / Post-Processing / Experimental) and
 /// immediate disk save.
 ///
 /// Each tab body marks a shared `dirty` flag; once any tab modifies a setting, the whole
@@ -168,6 +168,9 @@ fn renderer_config_panel_body(
                     DebugHudRendererConfigTab::Debug => debug_section(ui, g, &mut dirty),
                     DebugHudRendererConfigTab::PostProcessing => {
                         post_processing_section(ui, g, &mut dirty);
+                    }
+                    DebugHudRendererConfigTab::Experimental => {
+                        experimental_section(ui, g, &mut dirty);
                     }
                 }
             }
@@ -531,6 +534,22 @@ fn watchdog_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) 
             *dirty = true;
         }
     }
+    ui.unindent();
+}
+
+/// Experimental feature flags.
+fn experimental_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
+    ui.text("Experimental");
+    ui.indent();
+    if ui.checkbox(
+        "Use reflection probe SH2",
+        &mut g.experimental.reflection_probe_sh2_enabled,
+    ) {
+        *dirty = true;
+    }
+    ui.text_disabled(
+        "When disabled, reflection probes contribute specular reflections only; diffuse SH2 comes from AmbientLightSH2.",
+    );
     ui.unindent();
 }
 

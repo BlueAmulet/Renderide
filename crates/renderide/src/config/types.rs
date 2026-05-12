@@ -1,4 +1,4 @@
-//! Serde/TOML schema for renderer settings (`[display]`, `[rendering]`, `[debug]`, `[post_processing]`).
+//! Serde/TOML schema for renderer settings (`[display]`, `[rendering]`, `[debug]`, `[post_processing]`, `[experimental]`).
 //!
 //! `RendererSettings` is the top-level aggregator; per-domain submodules own each section's structs
 //! and serde plumbing so each TOML table maps to a focused file.
@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 mod debug;
 mod display;
+mod experimental;
 mod post_processing;
 mod rendering;
 mod watchdog;
@@ -16,6 +17,7 @@ pub use debug::{
     DebugHudRendererConfigTabVisibility, DebugHudSettings, DebugSettings, PowerPreferenceSetting,
 };
 pub use display::DisplaySettings;
+pub use experimental::ExperimentalSettings;
 #[cfg(test)]
 pub(crate) use post_processing::TonemapSettings;
 pub use post_processing::{
@@ -42,6 +44,8 @@ pub struct RendererSettings {
     pub debug: DebugSettings,
     /// Post-processing stack toggles and per-effect parameters.
     pub post_processing: PostProcessingSettings,
+    /// Experimental renderer feature flags.
+    pub experimental: ExperimentalSettings,
     /// Cooperative hang/hitch detection ([`crate::diagnostics::Watchdog`]).
     pub watchdog: WatchdogSettings,
 }
@@ -64,6 +68,7 @@ impl Default for RendererSettings {
             rendering: RenderingSettings::default(),
             debug: DebugSettings::default(),
             post_processing: PostProcessingSettings::default(),
+            experimental: ExperimentalSettings::default(),
             watchdog: WatchdogSettings::default(),
         }
     }
@@ -97,5 +102,18 @@ mod tests {
             RendererSettings::CURRENT_CONFIG_VERSION
         );
         assert_eq!(settings.display.focused_fps_cap, 75);
+        assert!(settings.experimental.reflection_probe_sh2_enabled);
+    }
+
+    #[test]
+    fn experimental_section_round_trips() {
+        let mut settings = RendererSettings::default();
+        settings.experimental.reflection_probe_sh2_enabled = false;
+
+        let text = toml::to_string_pretty(&settings).expect("serialize");
+        let decoded: RendererSettings = toml::from_str(&text).expect("deserialize");
+
+        assert!(text.contains("[experimental]"), "got:\n{text}");
+        assert!(!decoded.experimental.reflection_probe_sh2_enabled);
     }
 }

@@ -132,7 +132,9 @@ fn wait_for_mesh_upload_result(
 /// Sends a `ShaderUpload` carrying the test-only `RENDERIDE_TEST_STEM:` sentinel so the
 /// renderer routes the asset directly to an embedded WGSL stem (skipping AssetBundle parsing).
 /// The `shader_name` is taken in production-style form (e.g. `"Unlit.shader"`); the renderer
-/// strips the optional `.shader` extension and lowercases internally.
+/// strips the optional `.shader` extension and lowercases internally. When `shader_variant_bits`
+/// is set, the sentinel uses Unity-style `{shader_name}_{bits:08X}.shader` naming so the renderer
+/// also packs `_RenderideVariantBits`.
 ///
 /// Blocks on `ShaderUploadResult` while pumping the lockstep loop.
 pub(super) fn upload_shader(
@@ -140,21 +142,37 @@ pub(super) fn upload_shader(
     lockstep: &mut LockstepDriver,
     asset_id: i32,
     shader_name: &str,
+    shader_variant_bits: Option<u32>,
     timeout: Duration,
 ) -> Result<(), HarnessError> {
+    let sentinel = format_test_shader_upload_file(shader_name, shader_variant_bits);
     let upload = ShaderUpload {
         asset_id,
-        file: Some(format!("{RENDERIDE_TEST_STEM_PREFIX}{shader_name}")),
+        file: Some(sentinel.clone()),
     };
     if !queues.send_background(RendererCommand::ShaderUpload(upload)) {
         return Err(HarnessError::QueueOptions(
             "send_background(ShaderUpload) returned false (queue full?)".to_string(),
         ));
     }
-    logger::info!("AssetUpload: sent ShaderUpload(asset_id={asset_id}, sentinel={shader_name:?})");
+    logger::info!("AssetUpload: sent ShaderUpload(asset_id={asset_id}, sentinel={sentinel:?})");
     wait_for_shader_upload_result(queues, lockstep, asset_id, timeout)?;
     logger::info!("AssetUpload: received ShaderUploadResult(asset_id={asset_id})");
     Ok(())
+}
+
+fn format_test_shader_upload_file(shader_name: &str, shader_variant_bits: Option<u32>) -> String {
+    match shader_variant_bits {
+        Some(bits) => {
+            let base = shader_name
+                .strip_suffix(".shader")
+                .or_else(|| shader_name.strip_suffix(".SHADER"))
+                .or_else(|| shader_name.strip_suffix(".Shader"))
+                .unwrap_or(shader_name);
+            format!("{RENDERIDE_TEST_STEM_PREFIX}{base}_{bits:08X}.shader")
+        }
+        None => format!("{RENDERIDE_TEST_STEM_PREFIX}{shader_name}"),
+    }
 }
 
 fn wait_for_shader_upload_result(
@@ -639,10 +657,30 @@ fn wait_for_texture_data_upload_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{MaterialUpdateOp, encode_material_batch, pack_texture2d_handle};
+    use super::{
+        MaterialUpdateOp, encode_material_batch, format_test_shader_upload_file,
+        pack_texture2d_handle,
+    };
     use renderide_shared::shared::{
         MATERIAL_PROPERTY_UPDATE_HOST_ROW_BYTES, MaterialPropertyUpdateType,
     };
+    use renderide_shared::test_hooks::RENDERIDE_TEST_STEM_PREFIX;
+
+    #[test]
+    fn shader_upload_file_without_variant_preserves_shader_name() {
+        assert_eq!(
+            format_test_shader_upload_file("Unlit.shader", None),
+            format!("{RENDERIDE_TEST_STEM_PREFIX}Unlit.shader")
+        );
+    }
+
+    #[test]
+    fn shader_upload_file_with_variant_uses_unity_style_suffix() {
+        assert_eq!(
+            format_test_shader_upload_file("Unlit.shader", Some(0x0000_0200)),
+            format!("{RENDERIDE_TEST_STEM_PREFIX}Unlit_00000200.shader")
+        );
+    }
 
     #[test]
     fn encodes_one_row_per_eight_bytes() {

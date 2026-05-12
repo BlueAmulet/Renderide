@@ -203,6 +203,20 @@ fn sample_probe_sh2(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
     return sh * max(probe.params.x, 0.0);
 }
 
+fn ambient_probe_or_zero(normal_ws: vec3<f32>) -> vec3<f32> {
+    if (shamb::ambient_probe_is_valid()) {
+        return shamb::ambient_probe(normal_ws);
+    }
+    return vec3<f32>(0.0);
+}
+
+fn sample_probe_sh2_or_ambient(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
+    if (probe_has_any_sh2(atlas_index)) {
+        return sample_probe_sh2(atlas_index, normal_ws);
+    }
+    return ambient_probe_or_zero(normal_ws);
+}
+
 fn blend_local_probe_with_fallback_sh2(
     first_index: u32,
     fallback_index: u32,
@@ -211,11 +225,12 @@ fn blend_local_probe_with_fallback_sh2(
 ) -> vec3<f32> {
     let first_probe = rg::reflection_probes[first_index];
     let edge_weight = probe_edge_weight(first_probe, world_pos);
-    let first = sample_probe_sh2(first_index, normal_ws);
+    let first = sample_probe_sh2_or_ambient(first_index, normal_ws);
     if (fallback_index == 0u) {
-        return first * edge_weight;
+        let fallback = ambient_probe_or_zero(normal_ws);
+        return mix(fallback, first, edge_weight);
     }
-    let fallback = sample_probe_sh2(fallback_index, normal_ws);
+    let fallback = sample_probe_sh2_or_ambient(fallback_index, normal_ws);
     return mix(fallback, first, edge_weight);
 }
 
@@ -234,10 +249,10 @@ fn blend_two_local_probe_sh2(
     let second_weighted = second_base * probe_edge_weight(second_probe, world_pos);
     let total_weight = first_weight + second_weighted;
     if (total_weight <= MIN_PROBE_BLEND_WEIGHT) {
-        return vec3<f32>(0.0);
+        return ambient_probe_or_zero(normal_ws);
     }
-    let first = sample_probe_sh2(first_index, normal_ws);
-    let second = sample_probe_sh2(second_index, normal_ws);
+    let first = sample_probe_sh2_or_ambient(first_index, normal_ws);
+    let second = sample_probe_sh2_or_ambient(second_index, normal_ws);
     return (first * first_weight + second * second_weighted) / total_weight;
 }
 

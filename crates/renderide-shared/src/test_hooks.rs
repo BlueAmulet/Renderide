@@ -6,7 +6,9 @@
 //! without supplying a Unity AssetBundle, it sets [`crate::shared::ShaderUpload::file`] to
 //! `RENDERIDE_TEST_STEM:<stem>`. The renderer's shader route resolver checks for the prefix
 //! and short-circuits to [`embedded_default_stem_for_shader_asset_name`] without touching the
-//! filesystem.
+//! filesystem. Harness uploads may also use `RENDERIDE_TEST_STEM:<stem>_<bits>.shader`, where
+//! `<bits>` is eight uppercase hex digits; the renderer strips the suffix for routing and packs
+//! it as `_RenderideVariantBits`.
 //!
 //! [`embedded_default_stem_for_shader_asset_name`]: ../../renderide/src/materials/index.html
 
