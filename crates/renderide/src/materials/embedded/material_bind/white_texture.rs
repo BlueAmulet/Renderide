@@ -17,7 +17,7 @@ pub(super) struct PlaceholderTexture {
 pub(super) enum PlaceholderTextureColor {
     /// Opaque white texel.
     White,
-    /// Transparent black texel.
+    /// Opaque black texel.
     Black,
 }
 
@@ -25,7 +25,7 @@ impl PlaceholderTextureColor {
     fn rgba(self) -> [u8; 4] {
         match self {
             Self::White => [255, 255, 255, 255],
-            Self::Black => [0, 0, 0, 0],
+            Self::Black => [0, 0, 0, 255],
         }
     }
 }
