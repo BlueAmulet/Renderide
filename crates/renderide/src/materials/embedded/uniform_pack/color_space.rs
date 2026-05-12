@@ -106,6 +106,7 @@ fn srgb_vec4_uniform_field(field_name: &str) -> bool {
             | "_OuterColor"
             | "_OutlineColor"
             | "_OutlineTint"
+            | "_OutisdeColor"
             | "_OutsideColor"
             | "_OverlayTint"
             | "_RimColor"
