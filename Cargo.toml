@@ -23,12 +23,11 @@ opt-level = 2
 # Global Release Build Settings
 [profile.release]
 debug = true
+strip = "debuginfo"
 # Full optimization for maximum performance
 opt-level = 3
 # Disable debug assertions for better performance
 debug-assertions = false
-# Set a lower panic strategy to reduce binary size (Unwind uses more space)
-panic = "abort"
 
 [workspace.lints.rust]
 closure_returning_async_block = "warn"

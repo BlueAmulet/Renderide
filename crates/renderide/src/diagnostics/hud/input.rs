@@ -11,10 +11,6 @@ use imgui::{Io, MouseButton as ImGuiMouseButton};
 
 use crate::shared::InputState;
 
-/// Wheel notch unit ImGui expects on its mouse-wheel events. Winit reports unscaled deltas;
-/// dividing by this constant produces the per-notch step ImGui consumes for its scroll handling.
-const WHEEL_UNIT: f32 = 120.0;
-
 /// Strips pointer, scroll, drag/drop, and keyboard data from `input` when ImGui reported capture on the previous frame.
 ///
 /// The renderer feeds ImGui from the same winit accumulator as the host; this keeps [`InputState`]
@@ -54,7 +50,7 @@ pub struct DebugHudInput {
     pub window_focused: bool,
     /// Whether the cursor is over the client area (from winit accumulator).
     pub mouse_active: bool,
-    /// Scroll wheel delta in platform units (e.g. Windows uses 120 per notch).
+    /// Scroll wheel delta in Dear ImGui wheel units.
     pub mouse_wheel_delta: Vec2,
     /// Left mouse button held.
     pub left: bool,
@@ -112,10 +108,7 @@ pub(crate) fn apply_input(io: &mut Io, input: &DebugHudInput) {
     io.add_mouse_button_event(ImGuiMouseButton::Middle, input.middle);
     io.add_mouse_button_event(ImGuiMouseButton::Extra1, input.extra1);
     io.add_mouse_button_event(ImGuiMouseButton::Extra2, input.extra2);
-    io.add_mouse_wheel_event([
-        input.mouse_wheel_delta.x / WHEEL_UNIT,
-        input.mouse_wheel_delta.y / WHEEL_UNIT,
-    ]);
+    io.add_mouse_wheel_event([input.mouse_wheel_delta.x, input.mouse_wheel_delta.y]);
 }
 
 #[cfg(test)]

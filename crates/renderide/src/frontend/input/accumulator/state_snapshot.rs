@@ -3,7 +3,7 @@
 //! The snapshot is built lazily when the lock-step send needs it; deltas are
 //! drained here so they don't double-count across consecutive frame starts.
 
-use glam::{IVec2, Vec2};
+use glam::IVec2;
 
 use crate::shared::{DragAndDropEvent, InputState, KeyboardState, MouseState, WindowState};
 
@@ -36,7 +36,6 @@ impl WindowInputAccumulator {
             scroll_wheel_delta: std::mem::take(&mut self.scroll_delta),
         };
 
-        self.hud_scroll_sample = Vec2::ZERO;
         let window = WindowState {
             is_window_focused: self.window_focused,
             is_fullscreen: self.fullscreen,
