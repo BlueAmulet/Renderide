@@ -158,22 +158,20 @@ impl RendererRuntime {
             }
         }
 
-        // NOTE(debugging): gating dropped temporarily -- snapshot always fires at the throttle
-        // cadence whenever the HUD frame runs. The original gate
-        // (`imgui_visible && debug_hud_transforms && scene_transforms_open`) was returning false
-        // even with all three apparently true; root cause unresolved. Bring the gate back once
-        // the dash overlay issue is closed out.
-        if self
-            .diagnostics
-            .should_refresh_scene_transforms_snapshot(now)
+        if flags.scene_transforms
+            && self
+                .diagnostics
+                .should_refresh_scene_transforms_snapshot(now)
         {
             profiling::scope!("hud::capture_scene_transforms_snapshot");
             let scene_transforms =
                 crate::diagnostics::SceneTransformsSnapshot::capture(&self.scene);
             self.backend
                 .set_debug_hud_scene_transforms_snapshot(scene_transforms);
+        } else if !flags.scene_transforms {
+            self.backend.clear_debug_hud_scene_transforms_snapshot();
+            self.diagnostics.clear_scene_transforms_snapshot_timer();
         }
-        let _ = flags.scene_transforms;
 
         if flags.textures && self.diagnostics.should_refresh_texture_debug_snapshot(now) {
             profiling::scope!("hud::capture_texture_debug_snapshot");

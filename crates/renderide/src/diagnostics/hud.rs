@@ -188,6 +188,11 @@ impl DebugHud {
         self.frame_diagnostics = None;
     }
 
+    /// Clears the **Scene transforms** HUD payload.
+    pub fn clear_scene_transforms_snapshot(&mut self) {
+        self.scene_transforms = SceneTransformsSnapshot::default();
+    }
+
     /// Clears the **Textures** HUD payload.
     pub fn clear_texture_debug_snapshot(&mut self) {
         self.texture_debug = TextureDebugSnapshot::default();

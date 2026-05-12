@@ -95,6 +95,10 @@ impl RuntimeDiagnosticsState {
         self.main_hud_snapshot_last_refresh = None;
     }
 
+    pub(in crate::runtime) fn clear_scene_transforms_snapshot_timer(&mut self) {
+        self.scene_transforms_snapshot_last_refresh = None;
+    }
+
     pub(in crate::runtime) fn clear_texture_debug_snapshot_timer(&mut self) {
         self.texture_debug_snapshot_last_refresh = None;
     }
