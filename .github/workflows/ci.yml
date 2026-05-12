@@ -34,9 +34,9 @@ jobs:
           - os: ubuntu-latest
             clippy_features: "--all-features"
           - os: windows-latest
-            clippy_features: "--features tracy"
+            clippy_features: ""
           - os: macos-latest
-            clippy_features: "--features tracy"
+            clippy_features: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +56,20 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Enable sccache (Windows)
+        if: runner.os == 'Windows'
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Configure sccache (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >>"${GITHUB_ENV}"
+          echo "RUSTC_WRAPPER=sccache" >>"${GITHUB_ENV}"
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -69,10 +82,14 @@ jobs:
         run: taplo fmt --check --diff
 
       - name: Clippy
-        run: cargo clippy --all-targets ${{ matrix.clippy_features }} -- -W clippy::all -D warnings
+        run: cargo clippy --all-targets --locked ${{ matrix.clippy_features }} -- -W clippy::all -D warnings
+
+      - name: Check Tracy feature
+        if: runner.os != 'Linux'
+        run: cargo check --locked -p renderide --features tracy
 
       - name: cargo build
-        run: cargo build --workspace --locked
+        run: cargo build --locked -p renderide -p renderide-test -p bootstrapper
 
       - name: cargo test
         run: cargo test --workspace --locked
@@ -97,9 +114,19 @@ jobs:
             logs/renderer-test/**
             logs/renderer/**
 
+      - name: Show sccache stats (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: bash
+        run: |
+          if [[ -n "${SCCACHE_PATH:-}" ]]; then
+            "${SCCACHE_PATH}" --show-stats
+          fi
+
   dotnet:
     name: .NET / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     strategy:
       fail-fast: false
       matrix:
@@ -114,11 +141,10 @@ jobs:
           # Restores NuGet global-packages folder between runs (keyed on dependency manifests).
           cache: true
           cache-dependency-path: |
-            generators/**/*.csproj
-            generators/**/Directory.Build.props
+            generators/**/packages.lock.json
 
       - name: Restore
-        run: dotnet restore Generators.sln
+        run: dotnet restore Generators.sln --locked-mode
 
       # `dotnet format` can be sensitive to the runner's git line-ending behavior (e.g. Windows
       # `core.autocrlf=true`), so verify formatting only on Linux where checkouts match in-repo encoding.
@@ -130,8 +156,8 @@ jobs:
       # combined with `latest-recommended` analyzers in the project files this gates
       # CI on a clean, warning-free build.
       - name: Build (warnings as errors)
-        run: dotnet build Generators.sln --configuration Release --no-restore -warnaserror
+        run: dotnet build generators/SharedTypeGenerator.Tests/SharedTypeGenerator.Tests.csproj --configuration Release --no-restore -warnaserror
 
       # Hosted runners do not have Renderite.Shared.dll: roundtrip sources are excluded at compile time (see SharedTypeGenerator.Tests.csproj).
       - name: Test
-        run: dotnet test Generators.sln --configuration Release --no-build --no-restore
+        run: dotnet test generators/SharedTypeGenerator.Tests/SharedTypeGenerator.Tests.csproj --configuration Release --no-build --no-restore
