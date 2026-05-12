@@ -22,8 +22,8 @@ struct FiltersRefractMaterial {
     _RenderideVariantBits: u32,
 }
 
-const REFRACT_KW_RECTCLIP: u32 = 1u << 0u;
-const REFRACT_KW_NORMALMAP: u32 = 1u << 1u;
+const REFRACT_KW_NORMALMAP: u32 = 1u << 0u;
+const REFRACT_KW_RECTCLIP: u32 = 1u << 1u;
 
 @group(1) @binding(0) var<uniform> mat: FiltersRefractMaterial;
 @group(1) @binding(1) var _NormalMap: texture_2d<f32>;

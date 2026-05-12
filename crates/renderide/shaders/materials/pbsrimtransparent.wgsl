@@ -35,6 +35,7 @@ const PBSRIMTRANSPARENT_KW_EMISSIONTEX: u32 = 1u << 1u;
 const PBSRIMTRANSPARENT_KW_METALLICMAP: u32 = 1u << 2u;
 const PBSRIMTRANSPARENT_KW_NORMALMAP: u32 = 1u << 3u;
 const PBSRIMTRANSPARENT_KW_OCCLUSION: u32 = 1u << 4u;
+const PBSRIMTRANSPARENT_KW_ZWRITE: u32 = 1u << 5u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsRimTransparentMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
