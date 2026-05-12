@@ -4,8 +4,8 @@
 //!
 //! Froox variant bits populate `_RenderideVariantBits`. PBSSliceTransparentSpecular's Unity source
 //! declares `#pragma multi_compile _ _METALLICMAP` (copy-paste from the metallic sibling) even
-//! though this shader is specular, but the only specular-map branch checks the undeclared
-//! `_SPECULARMAP`. The `_METALLICMAP` bit is reserved only to preserve sorted keyword positions.
+//! though this shader is specular, so the optional specular-map sample is keyed to the
+//! alphabetically-positioned `_METALLICMAP` slot.
 
 
 #import renderide::mesh::vertex as mv
@@ -42,7 +42,7 @@ const PBSSLICETRANSPARENTSPECULAR_KW_ALBEDOTEX: u32 = 1u << 0u;
 const PBSSLICETRANSPARENTSPECULAR_KW_DETAIL_ALBEDOTEX: u32 = 1u << 1u;
 const PBSSLICETRANSPARENTSPECULAR_KW_DETAIL_NORMALMAP: u32 = 1u << 2u;
 const PBSSLICETRANSPARENTSPECULAR_KW_EMISSIONTEX: u32 = 1u << 3u;
-// Unity's pragma is `_ _METALLICMAP`; the shader's `_SPECULARMAP` sampling branch is dead.
+// Unity's pragma is `_ _METALLICMAP`; the bit gates optional `_SpecularMap` sampling.
 const PBSSLICETRANSPARENTSPECULAR_KW_METALLICMAP: u32 = 1u << 4u;
 const PBSSLICETRANSPARENTSPECULAR_KW_NORMALMAP: u32 = 1u << 5u;
 const PBSSLICETRANSPARENTSPECULAR_KW_OCCLUSION: u32 = 1u << 6u;
@@ -58,10 +58,12 @@ const PBSSLICETRANSPARENTSPECULAR_KW_WORLD_SPACE: u32 = 1u << 8u;
 @group(1) @binding(6)  var _EmissionMap_sampler: sampler;
 @group(1) @binding(7)  var _OcclusionMap: texture_2d<f32>;
 @group(1) @binding(8)  var _OcclusionMap_sampler: sampler;
-@group(1) @binding(9)  var _DetailAlbedoMap: texture_2d<f32>;
-@group(1) @binding(10) var _DetailAlbedoMap_sampler: sampler;
-@group(1) @binding(11) var _DetailNormalMap: texture_2d<f32>;
-@group(1) @binding(12) var _DetailNormalMap_sampler: sampler;
+@group(1) @binding(9)  var _SpecularMap: texture_2d<f32>;
+@group(1) @binding(10) var _SpecularMap_sampler: sampler;
+@group(1) @binding(11) var _DetailAlbedoMap: texture_2d<f32>;
+@group(1) @binding(12) var _DetailAlbedoMap_sampler: sampler;
+@group(1) @binding(13) var _DetailNormalMap: texture_2d<f32>;
+@group(1) @binding(14) var _DetailNormalMap_sampler: sampler;
 
 fn pbs_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
@@ -172,7 +174,10 @@ fn fs_main(
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
-    let spec = mat._SpecularColor;
+    var spec = mat._SpecularColor;
+    if (pbs_kw(PBSSLICETRANSPARENTSPECULAR_KW_METALLICMAP)) {
+        spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
+    }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let smoothness = clamp(spec.a, 0.0, 1.0);
     let roughness = psamp::roughness_from_smoothness(smoothness);

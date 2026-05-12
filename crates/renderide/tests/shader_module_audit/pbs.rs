@@ -392,21 +392,75 @@ fn pbs_slice_variant_bits_keep_froox_sorted_keyword_order() -> io::Result<()> {
 }
 
 #[test]
-fn pbs_slice_specular_variants_drop_dead_specular_map_branch() -> io::Result<()> {
-    for file_name in ["pbsslicespecular.wgsl", "pbsslicetransparentspecular.wgsl"] {
+fn pbsspecular_variant_bits_keep_alphablend_slot_reserved() -> io::Result<()> {
+    let src = material_source("pbsspecular.wgsl")?;
+    assert_keyword_bit(&src, "pbsspecular.wgsl", "PBSSPECULAR_KW_ALPHABLEND_ON", 0);
+    Ok(())
+}
+
+#[test]
+fn pbs_slice_specular_variants_gate_specular_map_with_metallicmap_bit() -> io::Result<()> {
+    for (file_name, metallic_bit) in [
+        ("pbsslicespecular.wgsl", "PBSSLICESPECULAR_KW_METALLICMAP"),
+        (
+            "pbsslicetransparentspecular.wgsl",
+            "PBSSLICETRANSPARENTSPECULAR_KW_METALLICMAP",
+        ),
+    ] {
         let src = material_source(file_name)?;
         assert!(
-            !src.contains("_SpecularMap: texture_2d") && !src.contains("_SpecularMap_sampler"),
-            "{file_name} must not bind _SpecularMap because Unity never declares _SPECULARMAP"
+            src.contains("var _SpecularMap: texture_2d<f32>")
+                && src.contains("var _SpecularMap_sampler: sampler"),
+            "{file_name} must bind _SpecularMap"
         );
         assert!(
-            !src.contains("textureSample(_SpecularMap"),
-            "{file_name} must not sample the dead _SPECULARMAP branch"
+            src.contains(&format!("if (pbs_kw({metallic_bit}))"))
+                && src
+                    .contains("spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);"),
+            "{file_name} must gate _SpecularMap sampling with {metallic_bit}"
         );
         assert!(
-            src.contains("let spec = mat._SpecularColor;"),
-            "{file_name} must use _SpecularColor for specular f0 and smoothness"
+            !src.contains("KW_SPECULARMAP"),
+            "{file_name} must not invent a _SPECULARMAP variant bit"
         );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pbstriplanar_object_space_uses_object_normal_projection() -> io::Result<()> {
+    let module_src =
+        source_file(manifest_dir().join("shaders/modules/pbs/families/triplanar.wgsl"))?;
+    for required in [
+        "fn sample_normal_projected(",
+        "fn triplanar_weights(projection_n: vec3<f32>",
+        "fn build_planar_uvs(proj_pos: vec3<f32>, projection_n: vec3<f32>",
+    ] {
+        assert!(
+            module_src.contains(required),
+            "triplanar helper module must contain `{required}`"
+        );
+    }
+
+    for file_name in ["pbstriplanar.wgsl", "pbstriplanarspecular.wgsl"] {
+        let src = material_source(file_name)?;
+        for required in [
+            "@location(2) projection_n: vec3<f32>",
+            "let object_n = normalize(n.xyz);",
+            "out.projection_n = select(wn, object_n, kw_OBJECTSPACE());",
+            "ptri::build_planar_uvs(proj_pos, projection_n, mat._MainTex_ST)",
+            "ptri::triplanar_weights(projection_n, mat._TriBlendPower)",
+            "ptri::sample_normal_projected(",
+            "let d = pd::get_draw(view_layer >> 1u);",
+            "n_world = normalize(mv::model_vector(d, n_world));",
+            "n_world = normalize(world_n);",
+        ] {
+            assert!(
+                src.contains(required),
+                "{file_name} must contain `{required}`"
+            );
+        }
     }
 
     Ok(())

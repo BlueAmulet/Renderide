@@ -3,8 +3,8 @@
 //!
 //! Each texture (`_MainTex`, `_MetallicMap`, `_EmissionMap`, `_NormalMap`, `_OcclusionMap`) is
 //! sampled three times -- once per axis-aligned plane (ZY for X, XZ for Y, XY for Z) -- and blended
-//! by `pow(abs(world_normal), _TriBlendPower)`. Normal maps use Reoriented Normal Mapping (RNM)
-//! per plane, after Ben Golus's 2017 example. World-space vs object-space is selected by the
+//! by `pow(abs(projection_normal), _TriBlendPower)`. Normal maps use Reoriented Normal Mapping
+//! (RNM) per plane, after Ben Golus's 2017 example. World-space vs object-space is selected by the
 //! `_OBJECTSPACE` / `_WORLDSPACE` keyword pair.
 //!
 //! Back faces flip the shading normal across the geometric tangent plane, matching Unity's
@@ -93,14 +93,14 @@ fn kw_OCCLUSION() -> bool {
 
 /// Interpolated vertex output forwarded to both forward-base and forward-add fragments.
 ///
-/// `proj_pos` is the projection source -- world or object space, selected at vertex time so that
-/// the fragment shader can stay branchless.
+/// `proj_pos` and `projection_n` use world or object space according to the shader keyword.
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
-    @location(2) proj_pos: vec3<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
+    @location(2) projection_n: vec3<f32>,
+    @location(3) proj_pos: vec3<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
 }
 
 /// Resolved per-fragment shading inputs for the metallic Cook-Torrance path.
@@ -115,9 +115,17 @@ struct SurfaceData {
 }
 
 /// Resolve the [`SurfaceData`] for a fragment, mirroring Unity's triplanar `surf` for `PBSTriplanar`.
-fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>, front_facing: bool) -> SurfaceData {
-    let uvs = ptri::build_planar_uvs(proj_pos, world_n, mat._MainTex_ST);
-    let weights = ptri::triplanar_weights(world_n, mat._TriBlendPower);
+fn sample_surface(
+    world_n: vec3<f32>,
+    projection_n: vec3<f32>,
+    proj_pos: vec3<f32>,
+    front_facing: bool,
+    view_layer: u32,
+) -> SurfaceData {
+    let object_space = kw_OBJECTSPACE();
+    let normal_map = kw_NORMALMAP();
+    let uvs = ptri::build_planar_uvs(proj_pos, projection_n, mat._MainTex_ST);
+    let weights = ptri::triplanar_weights(projection_n, mat._TriBlendPower);
 
     var c = mat._Color;
     if (kw_ALBEDOTEX()) {
@@ -146,15 +154,23 @@ fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>,
         emission = emission * ptri::sample_rgba(_EmissionMap, _EmissionMap_sampler, uvs, weights);
     }
 
-    let n_world = ptri::sample_normal_world(
-        kw_NORMALMAP(),
+    var n_world = ptri::sample_normal_projected(
+        normal_map,
         _NormalMap,
         _NormalMap_sampler,
         uvs,
         mat._NormalScale,
-        world_n,
+        projection_n,
         weights,
     );
+    if (object_space) {
+        if (normal_map) {
+            let d = pd::get_draw(view_layer >> 1u);
+            n_world = normalize(mv::model_vector(d, n_world));
+        } else {
+            n_world = normalize(world_n);
+        }
+    }
     let n = ptri::flip_normal_for_back_face(n_world, world_n, front_facing);
 
     return SurfaceData(
@@ -168,8 +184,8 @@ fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>,
     );
 }
 
-/// Vertex stage: forward world position, world-space normal, and the projection-space position
-/// (world or object) selected by the `_OBJECTSPACE` / `_WORLDSPACE` keywords.
+/// Vertex stage: forward world position plus the projection-space position and normal selected
+/// by the `_OBJECTSPACE` / `_WORLDSPACE` keywords.
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -182,6 +198,7 @@ fn vs_main(
     let d = pd::get_draw(instance_index);
     let world_p = mv::world_position(d, pos);
     let wn = mv::world_normal(d, n);
+    let object_n = normalize(n.xyz);
 #ifdef MULTIVIEW
     let vp = mv::select_view_proj(d, view_idx);
 #else
@@ -192,8 +209,8 @@ fn vs_main(
     out.clip_pos = vp * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = wn;
-    // Default to world-space projection; switch to object-space when `_OBJECTSPACE` keyword wins.
     out.proj_pos = select(world_p.xyz, pos.xyz, kw_OBJECTSPACE());
+    out.projection_n = select(wn, object_n, kw_OBJECTSPACE());
 #ifdef MULTIVIEW
     out.view_layer = mv::packed_view_layer(instance_index, view_idx);
 #else
@@ -210,10 +227,11 @@ fn fs_forward_base(
     @builtin(front_facing) front_facing: bool,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
-    @location(2) proj_pos: vec3<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
+    @location(2) projection_n: vec3<f32>,
+    @location(3) proj_pos: vec3<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let s = sample_surface(world_pos, world_n, proj_pos, front_facing);
+    let s = sample_surface(world_n, projection_n, proj_pos, front_facing, view_layer);
     let surface = psurf::metallic(
         s.base_color,
         s.alpha,
