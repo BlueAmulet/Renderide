@@ -13,17 +13,24 @@
 //!
 //! 1. **`RENDERIDE_CONFIG`** -- path to `config.toml`. If set and the path is missing, a warning is
 //!    logged and resolution continues.
-//! 2. **Search** -- `config.toml` under:
-//!    - next to the current executable and its parent (binary output directory, e.g. `target/debug/`),
-//!    - a discovered workspace root (directory containing `Cargo.toml` and
-//!      `crates/renderide/Cargo.toml`, from cwd and the executable path),
-//!    - current working directory and two levels up (e.g. repo root when running from `crates/renderide`).
+//! 2. **User config directory** -- the per-platform config base from the `directories` crate with
+//!    `Renderide/config.toml` appended:
+//!    - Linux: `$XDG_CONFIG_HOME/Renderide/config.toml`, or `~/.config/Renderide/config.toml`
+//!    - macOS: `~/Library/Application Support/Renderide/config.toml`
+//!    - Windows: `%APPDATA%\Renderide\config.toml`
 //!
 //! ## Auto-creation
 //!
 //! If no file is found and **`RENDERIDE_CONFIG` is not set to a non-empty value**, the renderer
-//! writes default settings to the preferred save path (writable directory next to the executable when
-//! possible, then [`resolve_save_path`]) and loads that file. If creation fails, built-in defaults are used.
+//! writes default settings to the user config path and loads that file. If creation fails, built-in
+//! defaults are used.
+//!
+//! ## One-shot migration
+//!
+//! On startup, if the user config file is missing and no `RENDERIDE_CONFIG` override is set, the
+//! renderer scans previous config locations: next to the binary, at the discovered workspace root,
+//! in the current working directory, and two levels above it. The first hit is copied into the user
+//! config directory and the original is renamed to `config.toml.migrated` when possible.
 //!
 //! ## Persistence
 //!

@@ -1,10 +1,11 @@
 //! On-disk lifecycle for renderer settings.
 //!
 //! Three sibling concerns:
-//! - [`resolve`]: pick a `config.toml` path from `RENDERIDE_CONFIG`, the binary directory,
-//!   workspace roots, and the cwd; also computes the save path.
+//! - [`resolve`]: pick a `config.toml` path from `RENDERIDE_CONFIG` or the per-user config
+//!   directory; also computes the save path and exposes previous-layout migration candidates.
 //! - [`load`]: run the layered defaults -> TOML -> `RENDERIDE_*` env -> post-extract pipeline,
-//!   tolerate unknown keys for forward/backward compatibility, and apply versioned migrations.
+//!   tolerate unknown keys for forward/backward compatibility, apply versioned migrations, and
+//!   migrate previous on-disk config locations into the user config directory.
 //! - [`save`]: write `config.toml` atomically, merging unknown keys back so downgrades do not
 //!   drop newer settings.
 
