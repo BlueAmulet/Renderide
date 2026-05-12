@@ -122,7 +122,6 @@ pub(super) fn evaluate_draw_candidate(
     );
     let reflection_probes = match (ctx.reflection_probes, candidate.world_aabb) {
         (Some(selection), Some(aabb)) => selection.select(candidate.space_id, aabb),
-        (Some(selection), None) => selection.fallback(candidate.space_id),
         _ => ReflectionProbeDrawSelection::default(),
     };
     Some(WorldMeshDrawItem {

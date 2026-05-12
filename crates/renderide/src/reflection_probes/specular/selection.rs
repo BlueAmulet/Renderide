@@ -50,7 +50,6 @@ impl ReflectionProbeDrawSelection {
 #[derive(Default)]
 pub struct ReflectionProbeFrameSelection {
     spaces: HashMap<RenderSpaceId, ReflectionProbeSpatialIndex>,
-    skybox_fallback_slots: HashMap<RenderSpaceId, u16>,
 }
 
 impl ReflectionProbeFrameSelection {
@@ -69,38 +68,14 @@ impl ReflectionProbeFrameSelection {
         {
             return selection;
         }
-        self.fallback(space_id)
+        ReflectionProbeDrawSelection::default()
     }
 
-    /// Returns the render-space skybox fallback selection, if its specular IBL is ready.
-    #[must_use]
-    pub fn fallback(&self, space_id: RenderSpaceId) -> ReflectionProbeDrawSelection {
-        self.skybox_fallback_slots
-            .get(&space_id)
-            .copied()
-            .filter(|slot| *slot != 0)
-            .map_or_else(ReflectionProbeDrawSelection::default, |slot| {
-                ReflectionProbeDrawSelection {
-                    first_atlas_index: slot,
-                    second_atlas_index: 0,
-                    second_weight: 0.0,
-                    hit_count: 0,
-                }
-            })
-    }
-
-    pub(super) fn rebuild_spatial<I, J>(&mut self, probes: I, skybox_fallback_slots: J)
+    pub(super) fn rebuild_spatial<I>(&mut self, probes: I)
     where
         I: IntoIterator<Item = (RenderSpaceId, SpatialProbe)>,
-        J: IntoIterator<Item = (RenderSpaceId, u16)>,
     {
         self.spaces.clear();
-        self.skybox_fallback_slots.clear();
-        self.skybox_fallback_slots.extend(
-            skybox_fallback_slots
-                .into_iter()
-                .filter(|(_, slot)| *slot != 0),
-        );
         let mut by_space: HashMap<RenderSpaceId, Vec<SpatialProbe>> = HashMap::new();
         for (space_id, probe) in probes {
             by_space.entry(space_id).or_default().push(probe);
@@ -442,35 +417,24 @@ mod tests {
     }
 
     #[test]
-    fn frame_selection_uses_skybox_fallback_when_no_probe_hits() {
+    fn frame_selection_returns_default_when_no_probe_hits() {
         let mut selection = ReflectionProbeFrameSelection::default();
         let space_id = RenderSpaceId(7);
-        selection.rebuild_spatial(Vec::new(), [(space_id, 9)]);
+        selection.rebuild_spatial(Vec::new());
 
         let draw = selection.select(space_id, (Vec3::splat(-1.0), Vec3::splat(1.0)));
 
-        assert_eq!(
-            draw,
-            ReflectionProbeDrawSelection {
-                first_atlas_index: 9,
-                second_atlas_index: 0,
-                second_weight: 0.0,
-                hit_count: 0,
-            }
-        );
+        assert_eq!(draw, ReflectionProbeDrawSelection::default());
     }
 
     #[test]
-    fn frame_selection_prefers_probe_hit_over_skybox_fallback() {
+    fn frame_selection_uses_probe_hit() {
         let mut selection = ReflectionProbeFrameSelection::default();
         let space_id = RenderSpaceId(7);
-        selection.rebuild_spatial(
-            [(
-                space_id,
-                probe(0, 3, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
-            )],
-            [(space_id, 9)],
-        );
+        selection.rebuild_spatial([(
+            space_id,
+            probe(0, 3, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+        )]);
 
         let draw = selection.select(space_id, (Vec3::splat(-0.5), Vec3::splat(0.5)));
 
