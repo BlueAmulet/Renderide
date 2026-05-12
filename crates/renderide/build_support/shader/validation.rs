@@ -259,8 +259,8 @@ fn io_slot_label(slot: EntryIoSlot) -> String {
     )
 }
 
-/// Canonical Unity pipeline-state property names that must never appear in material uniforms.
-const PIPELINE_STATE_PROPERTY_NAMES: &[&str] = &[
+/// Canonical material control property names that must never appear in material uniforms.
+const MATERIAL_CONTROL_PROPERTY_NAMES: &[&str] = &[
     "_SrcBlend",
     "_SrcBlendBase",
     "_SrcBlendAdd",
@@ -270,6 +270,7 @@ const PIPELINE_STATE_PROPERTY_NAMES: &[&str] = &[
     "_ZWrite",
     "_ZTest",
     "_Cull",
+    "_Culling",
     "_Stencil",
     "_StencilComp",
     "_StencilOp",
@@ -280,9 +281,10 @@ const PIPELINE_STATE_PROPERTY_NAMES: &[&str] = &[
     "_ColorMask",
     "_OffsetFactor",
     "_OffsetUnits",
+    "_RenderQueue",
 ];
 
-/// Rejects any material whose `@group(1) @binding(0)` uniform contains pipeline-state fields.
+/// Rejects any material whose `@group(1) @binding(0)` uniform contains material control fields.
 pub(super) fn validate_no_pipeline_state_uniform_fields(
     module: &naga::Module,
     label: &str,
@@ -305,18 +307,71 @@ pub(super) fn validate_no_pipeline_state_uniform_fields(
             let Some(name) = member.name.as_deref() else {
                 continue;
             };
-            if PIPELINE_STATE_PROPERTY_NAMES.contains(&name) {
+            if MATERIAL_CONTROL_PROPERTY_NAMES.contains(&name) {
                 let struct_name = ty.name.as_deref().unwrap_or("<unnamed>");
                 return Err(BuildError::Message(format!(
-                    "{label}: material uniform struct `{struct_name}` declares pipeline-state \
-                     field `{name}` at @group(1) @binding(0). Pipeline-state properties \
-                     flow through MaterialBlendMode + MaterialRenderState and are baked into \
-                     MaterialPipelineCacheKey; remove the field from the WGSL struct."
+                    "{label}: material uniform struct `{struct_name}` declares material-control \
+                     field `{name}` at @group(1) @binding(0). Material-control properties \
+                     flow through MaterialBlendMode + MaterialRenderState or draw ordering; \
+                     remove the field from the WGSL struct."
+                )));
+            }
+            if let Some(canonical) = confusing_material_control_property_name(name) {
+                let struct_name = ty.name.as_deref().unwrap_or("<unnamed>");
+                return Err(BuildError::Message(format!(
+                    "{label}: material uniform struct `{struct_name}` declares field `{name}` \
+                     at @group(1) @binding(0), which looks like material-control property \
+                     `{canonical}`. Material-control properties flow through MaterialBlendMode + \
+                     MaterialRenderState or draw ordering; fix the typo or remove the field from \
+                     the WGSL struct."
                 )));
             }
         }
     }
     Ok(())
+}
+
+fn confusing_material_control_property_name(name: &str) -> Option<&'static str> {
+    MATERIAL_CONTROL_PROPERTY_NAMES
+        .iter()
+        .copied()
+        .find(|canonical| {
+            name.eq_ignore_ascii_case(canonical) || edit_distance_at_most_one(name, canonical)
+        })
+}
+
+fn edit_distance_at_most_one(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len().abs_diff(b.len()) > 1 {
+        return false;
+    }
+
+    let mut ai = 0;
+    let mut bi = 0;
+    let mut edits = 0;
+    while ai < a.len() && bi < b.len() {
+        if a[ai] == b[bi] {
+            ai += 1;
+            bi += 1;
+            continue;
+        }
+
+        edits += 1;
+        if edits > 1 {
+            return false;
+        }
+        match a.len().cmp(&b.len()) {
+            std::cmp::Ordering::Less => bi += 1,
+            std::cmp::Ordering::Equal => {
+                ai += 1;
+                bi += 1;
+            }
+            std::cmp::Ordering::Greater => ai += 1,
+        }
+    }
+
+    edits + (a.len() - ai) + (b.len() - bi) <= 1
 }
 
 /// Validates a naga module and flattens it back to WGSL.
@@ -327,4 +382,67 @@ pub(super) fn module_to_wgsl(module: &naga::Module, label: &str) -> Result<Strin
         .map_err(|e| BuildError::Message(format!("validate {label}: {e}")))?;
     naga::back::wgsl::write_string(module, &info, WriterFlags::EXPLICIT_TYPES)
         .map_err(|e| BuildError::Message(format!("wgsl out {label}: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn module_with_material_field(field: &str) -> naga::Module {
+        let wgsl = format!(
+            r#"
+struct TestMaterial {{
+    {field}: f32,
+}}
+
+@group(1) @binding(0)
+var<uniform> mat: TestMaterial;
+"#
+        );
+        naga::front::wgsl::parse_str(&wgsl).expect("test WGSL parses")
+    }
+
+    fn validation_error_for_field(field: &str) -> String {
+        let module = module_with_material_field(field);
+        validate_no_pipeline_state_uniform_fields(&module, "test_shader")
+            .expect_err("field should be rejected")
+            .to_string()
+    }
+
+    #[test]
+    fn rejects_exact_material_control_uniform_fields() {
+        for field in ["_Culling", "_RenderQueue"] {
+            let err = validation_error_for_field(field);
+            assert!(
+                err.contains(field),
+                "{field} error should name field: {err}"
+            );
+            assert!(
+                err.contains("material-control"),
+                "{field} error should identify material-control state: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_likely_material_control_uniform_typos() {
+        let zwrite = validation_error_for_field("_Zwrite");
+        assert!(
+            zwrite.contains("_ZWrite"),
+            "case typo error should name canonical field: {zwrite}"
+        );
+
+        let cull = validation_error_for_field("_Cul");
+        assert!(
+            cull.contains("_Cull"),
+            "edit-distance typo error should name canonical field: {cull}"
+        );
+    }
+
+    #[test]
+    fn accepts_similar_shader_data_field_names() {
+        let module = module_with_material_field("_ColorMask_ST");
+        validate_no_pipeline_state_uniform_fields(&module, "test_shader")
+            .expect("texture transform field is shader data, not pipeline state");
+    }
 }

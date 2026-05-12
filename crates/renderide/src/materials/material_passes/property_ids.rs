@@ -9,6 +9,8 @@ use crate::materials::host_data::PropertyIdRegistry;
 /// plus source-authored aliases used by imported Unity shader assets.
 /// `_SrcBlendBase`/`_DstBlendBase` are kept because `XiexeToonMaterial` overrides
 /// `SrcBlendProp`/`DstBlendProp` to those names.
+/// `_Cull` and `_Culling` both encode Unity `CullMode`; some shader assets expose the longer
+/// spelling even though most material providers send `_Cull`.
 /// `_BlendMode` is not carried: the host never sends it; the mode is reconstructed from
 /// `_SrcBlend`/`_DstBlend` factors via
 /// [`super::blend_mode::MaterialBlendMode::from_unity_blend_factors`].

@@ -19,6 +19,8 @@ fn interns_ui_rect_clip_property_ids_into_pipeline_set() {
     let ids = MaterialPipelinePropertyIds::new(&reg);
     assert_eq!(ids.rect[0], reg.intern("_Rect"));
     assert_eq!(ids.rect_clip[0], reg.intern("_RectClip"));
+    assert_eq!(ids.cull[0], reg.intern("_Cull"));
+    assert_eq!(ids.cull[1], reg.intern("_Culling"));
     assert_ne!(ids.rect[0], ids.rect_clip[0]);
     assert_eq!(ids.cull, [reg.intern("_Cull"), reg.intern("_Culling")]);
     assert_eq!(
@@ -61,6 +63,31 @@ fn resolves_xiexe_src_dst_base_blend_properties() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 430,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
+    };
+    assert_eq!(
+        material_blend_mode_for_lookup(&dict, lookup, &ids),
+        MaterialBlendMode::UnityBlend { src: 5, dst: 10 }
+    );
+}
+
+#[test]
+fn property_block_blend_alias_overrides_material_alias() {
+    let reg = PropertyIdRegistry::new();
+    let ids = MaterialPipelinePropertyIds::new(&reg);
+    let mut store = MaterialPropertyStore::new();
+    let src = reg.intern("_SrcBlend");
+    let dst = reg.intern("_DstBlend");
+    let src_base = reg.intern("_SrcBlendBase");
+    let dst_base = reg.intern("_DstBlendBase");
+    store.set_material(431, src, MaterialPropertyValue::Float(1.0));
+    store.set_material(431, dst, MaterialPropertyValue::Float(0.0));
+    store.set_property_block(4310, src_base, MaterialPropertyValue::Float(5.0));
+    store.set_property_block(4310, dst_base, MaterialPropertyValue::Float(10.0));
+    let dict = MaterialDictionary::new(&store);
+    let lookup = MaterialPropertyLookupIds {
+        material_asset_id: 431,
+        mesh_property_block_slot0: Some(4310),
         mesh_renderer_property_block_id: None,
     };
     assert_eq!(
@@ -525,6 +552,28 @@ fn cull_property_resolves_off_front_back() {
 }
 
 #[test]
+fn culling_property_alias_resolves_cull_mode() {
+    let reg = PropertyIdRegistry::new();
+    let ids = MaterialPipelinePropertyIds::new(&reg);
+    let mut store = MaterialPropertyStore::new();
+    let culling = reg.intern("_Culling");
+
+    store.set_material(51, culling, MaterialPropertyValue::Float(1.0));
+    let dict = MaterialDictionary::new(&store);
+    let lookup = MaterialPropertyLookupIds {
+        material_asset_id: 51,
+        mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
+    };
+    let state = material_render_state_for_lookup(&dict, lookup, &ids);
+    assert_eq!(state.cull_override, MaterialCullOverride::Front);
+    assert_eq!(
+        state.resolved_cull_mode(Some(wgpu::Face::Back)),
+        Some(wgpu::Face::Front)
+    );
+}
+
+#[test]
 fn property_block_overrides_cull() {
     let reg = PropertyIdRegistry::new();
     let ids = MaterialPipelinePropertyIds::new(&reg);
@@ -536,6 +585,25 @@ fn property_block_overrides_cull() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 52,
         mesh_property_block_slot0: Some(520),
+        mesh_renderer_property_block_id: None,
+    };
+    let state = material_render_state_for_lookup(&dict, lookup, &ids);
+    assert_eq!(state.cull_override, MaterialCullOverride::Off);
+}
+
+#[test]
+fn property_block_cull_alias_overrides_material_alias() {
+    let reg = PropertyIdRegistry::new();
+    let ids = MaterialPipelinePropertyIds::new(&reg);
+    let mut store = MaterialPropertyStore::new();
+    let cull = reg.intern("_Cull");
+    let culling = reg.intern("_Culling");
+    store.set_material(53, cull, MaterialPropertyValue::Float(2.0));
+    store.set_property_block(530, culling, MaterialPropertyValue::Float(0.0));
+    let dict = MaterialDictionary::new(&store);
+    let lookup = MaterialPropertyLookupIds {
+        material_asset_id: 53,
+        mesh_property_block_slot0: Some(530),
         mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
