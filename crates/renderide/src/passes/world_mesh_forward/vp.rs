@@ -2,7 +2,7 @@
 //!
 //! See module docs on [`super::WorldMeshForwardOpaquePass`] for VR vs overlay rules.
 
-use glam::{Mat4, Vec3};
+use glam::Mat4;
 
 use crate::camera::HostCameraFrame;
 use crate::camera::view_matrix_for_host_world_mesh_space;
@@ -10,23 +10,6 @@ use crate::materials::RasterPipelineKind;
 use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
 use crate::world_mesh::WorldMeshDrawItem;
-
-/// View-space Z offset applied to overlay-layer items so OverlayRoot-local origin lands inside
-/// the reverse-Z overlay ortho frustum.
-///
-/// Background: Unity's reference overlay setup has an `OverlayCamera` at some non-zero world Z
-/// looking back at the OverlayRoot (which `OverlayRootPositioner` forces to world origin). That
-/// camera position is what keeps the dash within the camera's near/far. Renderide previously
-/// used identity view + overlay ortho, which co-locates the camera with the dash at view z=0;
-/// reverse-Z requires view z in `[-far, -near]`, so z=0 vertices were clipped by the near plane.
-/// Translating every overlay vertex by `-OVERLAY_VIEW_Z_SHIFT` along Z is the mathematical
-/// equivalent of "camera sits one unit in front of the overlay content" without having to wire
-/// a full overlay-camera pose through the host frame.
-///
-/// Magnitude: 1.0 keeps z=0 vertices comfortably inside `[-100, -0.1]` (the default overlay
-/// clip planes) while leaving headroom for curved-plane meshes whose vertex Z can deviate by a
-/// fraction of a unit when curvature is non-zero.
-const OVERLAY_VIEW_Z_SHIFT: f32 = 1.0;
 
 /// Chooses perspective vs orthographic projection for a draw (overlay vs world).
 #[inline]
@@ -135,14 +118,6 @@ fn select_model_for_vertex_stream(
 /// camera is in the world, matching the host `RadiantDash` desktop layout (`UpdateProjection`
 /// scales `VisualsRoot` against `WindowResolution` so the dash fits a unit-height ortho frustum
 /// centered on the view).
-///
-/// **Do not short-circuit with `item.rigid_world_matrix` for overlay items.** That field is the
-/// world-space cull matrix (built during culling from the full hierarchy world transform); using
-/// it here would place overlay items at their world position instead of their overlay-ancestor
-/// relative position, which is exactly the bug `overlay_layer_model_matrix_for_context` exists to
-/// avoid. The Unity reference renderer has an `OverlayRootPositioner` that zeros the overlay
-/// root's world transform every frame; renderide's equivalent is this overlay-ancestor-relative
-/// model matrix.
 fn resolved_model_matrix(
     scene: &SceneCoordinator,
     item: &WorldMeshDrawItem,
@@ -150,6 +125,9 @@ fn resolved_model_matrix(
     render_context: RenderingContext,
 ) -> Mat4 {
     if item.is_overlay {
+        if let Some(model) = item.rigid_world_matrix {
+            return model;
+        }
         return scene
             .overlay_layer_model_matrix_for_context(
                 item.space_id,
@@ -210,13 +188,10 @@ pub(crate) fn compute_per_draw_vp_matrices(
         return PerDrawVpMatrices::identity();
     };
     if item.is_overlay {
-        // Identity view + Z-shift so OverlayRoot-local origin lands at view z = -SHIFT (inside
-        // the reverse-Z overlay frustum). See [`OVERLAY_VIEW_Z_SHIFT`] doc for the rationale.
+        // Identity view: overlay model is in normalized screen space directly.
         let op = projection_for_world_mesh_draw(true, overlay_proj, world_proj);
-        let overlay_view = Mat4::from_translation(Vec3::new(0.0, 0.0, -OVERLAY_VIEW_Z_SHIFT));
-        let vp = op * overlay_view;
         let model = resolve_model_selection(scene, item, hc, render_context);
-        return PerDrawVpMatrices::new(vp, vp, model);
+        return PerDrawVpMatrices::new(op, op, model);
     }
     let model = || resolve_model_selection(scene, item, hc, render_context);
     let view = view_matrix_for_host_world_mesh_space(scene, space, &hc);
