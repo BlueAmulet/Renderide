@@ -157,7 +157,7 @@ fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
     if (kw_SECOND_TEXTURE()) {
         let secondary_offset = vec2<f32>(mat._SecondTexOffset.x, -mat._SecondTexOffset.y);
         let sc = textureSampleLevel(_SecondTex, _SecondTex_sampler, sample_uv + secondary_offset, 0.0);
-        c = mix(c, sc, clamp(mat._TextureLerp, 0.0, 1.0));
+        c = mix(c, sc, mat._TextureLerp);
     }
 
     if (kw_TINT_TEX_DIRECT()) {
@@ -181,7 +181,7 @@ fn sample_cubemap(view_dir: vec3<f32>) -> vec4<f32> {
     if (kw_SECOND_TEXTURE()) {
         let second_dir = cubemap_storage::sample_dir(dir, mat._SecondCube_StorageVInverted);
         let sc = textureSampleLevel(_SecondCube, _SecondCube_sampler, second_dir, lod);
-        c = mix(c, sc, clamp(mat._TextureLerp, 0.0, 1.0));
+        c = mix(c, sc, mat._TextureLerp);
     }
     return c;
 }

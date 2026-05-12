@@ -104,7 +104,7 @@ fn fs_main(
     if (kw_COLOR()) {
         col = col * mat._Color;
     }
-    if (kw_ALPHATEST() && col.a <= mat._Cutoff) {
+    if (kw_ALPHATEST() && col.a < mat._Cutoff) {
         discard;
     }
     if (kw_MUL_RGB_BY_ALPHA()) {

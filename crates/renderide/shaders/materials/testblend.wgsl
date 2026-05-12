@@ -5,8 +5,6 @@
 //! reserved for layout consistency with the rest of the embedded materials and is never read.
 
 #import renderide::draw::per_draw as pd
-#import renderide::material::alpha_clip_sample as acs
-#import renderide::material::alpha as ma
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -81,17 +79,13 @@ fn shade(
     let uv_main2 = uvu::apply_st(uv0, mat._MainTex2_ST);
     let c1 = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let c2 = textureSample(_MainTex2, _MainTex2_sampler, uv_main2);
-    let lerp_factor = clamp(mat._Lerp, 0.0, 1.0);
-    let c = mix(c1, c2, lerp_factor);
+    let c = mix(c1, c2, mat._Lerp);
 
-    let alpha_a = acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main);
-    let alpha_b = acs::texture_alpha_base_mip(_MainTex2, _MainTex2_sampler, uv_main2);
-    let clip_alpha = mix(alpha_a, alpha_b, lerp_factor);
-    if (ma::should_clip_alpha(clip_alpha, mat._CutOff, true)) {
+    if (c.a < mat._CutOff) {
         discard;
     }
 
-    let base_color = c.rgb * mat._Color.rgb;
+    let base_color = c.rgb;
     // Unity's Custom/TestBlend is an opaque surface shader (no `o.Alpha = ...`); emit a
     // fixed 1.0 alpha rather than propagating the texture/tint alpha through the output.
     let metallic = clamp(mat._Metallic, 0.0, 1.0);
