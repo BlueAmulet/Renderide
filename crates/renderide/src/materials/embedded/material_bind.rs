@@ -43,7 +43,10 @@ use uniform::{
     EmbeddedUniformArenaRequest, MaterialUniformArena, MaterialUniformArenaSlotBinding,
     MaterialUniformCacheKey,
 };
-use white_texture::{PlaceholderTexture, create_black, create_white, upload_black, upload_white};
+use white_texture::{
+    PlaceholderTexture, create_black, create_flat_normal, create_white, upload_black,
+    upload_flat_normal, upload_white,
+};
 
 use resolve::EmbeddedBindInputResolution;
 
@@ -117,6 +120,7 @@ pub struct EmbeddedMaterialBindResources {
     device: Arc<wgpu::Device>,
     white_2d: PlaceholderTexture,
     black_2d: PlaceholderTexture,
+    flat_normal_2d: PlaceholderTexture,
     white_3d: PlaceholderTexture,
     white_cube: PlaceholderTexture,
     default_sampler: Arc<wgpu::Sampler>,
@@ -156,6 +160,7 @@ impl EmbeddedMaterialBindResources {
     ) -> Result<Self, EmbeddedMaterialBindError> {
         let white_2d = create_white(device.as_ref(), TextureBindKind::Tex2D);
         let black_2d = create_black(device.as_ref(), TextureBindKind::Tex2D);
+        let flat_normal_2d = create_flat_normal(device.as_ref(), TextureBindKind::Tex2D);
         let white_3d = create_white(device.as_ref(), TextureBindKind::Tex3D);
         let white_cube = create_white(device.as_ref(), TextureBindKind::Cube);
 
@@ -165,6 +170,7 @@ impl EmbeddedMaterialBindResources {
             device: device.clone(),
             white_2d,
             black_2d,
+            flat_normal_2d,
             white_3d,
             white_cube,
             default_sampler,
@@ -184,6 +190,7 @@ impl EmbeddedMaterialBindResources {
     pub fn write_default_textures(&self, queue: &wgpu::Queue) {
         upload_white(queue, &self.white_2d, TextureBindKind::Tex2D);
         upload_black(queue, &self.black_2d, TextureBindKind::Tex2D);
+        upload_flat_normal(queue, &self.flat_normal_2d, TextureBindKind::Tex2D);
         upload_white(queue, &self.white_3d, TextureBindKind::Tex3D);
         upload_white(queue, &self.white_cube, TextureBindKind::Cube);
     }

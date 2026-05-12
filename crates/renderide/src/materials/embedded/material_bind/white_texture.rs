@@ -19,6 +19,8 @@ pub(super) enum PlaceholderTextureColor {
     White,
     /// Opaque black texel.
     Black,
+    /// Opaque flat tangent-space normal `(0.5, 0.5, 1.0)`.
+    FlatNormal,
 }
 
 impl PlaceholderTextureColor {
@@ -26,13 +28,28 @@ impl PlaceholderTextureColor {
         match self {
             Self::White => [255, 255, 255, 255],
             Self::Black => [0, 0, 0, 255],
+            Self::FlatNormal => [128, 128, 255, 255],
+        }
+    }
+
+    /// Texture format whose sampler decode preserves [`Self::rgba`] as the intended linear value.
+    ///
+    /// `White` and `Black` keep the sRGB format the color-slot placeholders shipped with so 0 and 1
+    /// round-trip identically. `FlatNormal` must stay linear (`Rgba8Unorm`): a tangent-space normal
+    /// component of 0.5 is stored as the byte 128, and the sRGB EOTF would decode that as ~0.216
+    /// instead of 0.502.
+    fn format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::White | Self::Black => wgpu::TextureFormat::Rgba8UnormSrgb,
+            Self::FlatNormal => wgpu::TextureFormat::Rgba8Unorm,
         }
     }
 }
 
 impl TextureBindKind {
-    /// Texture descriptor parameters (label, dimension, layer count, view dimension).
+    /// Texture descriptor parameters (label, dimension, layer count, view dimension, format).
     fn placeholder_descriptor(self, color: PlaceholderTextureColor) -> PlaceholderDescriptor {
+        let format = color.format();
         match (self, color) {
             (TextureBindKind::Tex2D, PlaceholderTextureColor::White) => PlaceholderDescriptor {
                 label: "embedded_default_white",
@@ -40,6 +57,7 @@ impl TextureBindKind {
                 dimension: wgpu::TextureDimension::D2,
                 view_dimension: None,
                 depth_or_array_layers: 1,
+                format,
             },
             (TextureBindKind::Tex2D, PlaceholderTextureColor::Black) => PlaceholderDescriptor {
                 label: "embedded_default_black",
@@ -47,13 +65,25 @@ impl TextureBindKind {
                 dimension: wgpu::TextureDimension::D2,
                 view_dimension: None,
                 depth_or_array_layers: 1,
+                format,
             },
+            (TextureBindKind::Tex2D, PlaceholderTextureColor::FlatNormal) => {
+                PlaceholderDescriptor {
+                    label: "embedded_default_flat_normal",
+                    view_label: None,
+                    dimension: wgpu::TextureDimension::D2,
+                    view_dimension: None,
+                    depth_or_array_layers: 1,
+                    format,
+                }
+            }
             (TextureBindKind::Tex3D, PlaceholderTextureColor::White) => PlaceholderDescriptor {
                 label: "embedded_default_white_3d",
                 view_label: Some("embedded_default_white_3d_view"),
                 dimension: wgpu::TextureDimension::D3,
                 view_dimension: Some(wgpu::TextureViewDimension::D3),
                 depth_or_array_layers: 1,
+                format,
             },
             (TextureBindKind::Tex3D, PlaceholderTextureColor::Black) => PlaceholderDescriptor {
                 label: "embedded_default_black_3d",
@@ -61,6 +91,7 @@ impl TextureBindKind {
                 dimension: wgpu::TextureDimension::D3,
                 view_dimension: Some(wgpu::TextureViewDimension::D3),
                 depth_or_array_layers: 1,
+                format,
             },
             (TextureBindKind::Cube, PlaceholderTextureColor::White) => PlaceholderDescriptor {
                 label: "embedded_default_white_cube",
@@ -68,6 +99,7 @@ impl TextureBindKind {
                 dimension: wgpu::TextureDimension::D2,
                 view_dimension: Some(wgpu::TextureViewDimension::Cube),
                 depth_or_array_layers: 6,
+                format,
             },
             (TextureBindKind::Cube, PlaceholderTextureColor::Black) => PlaceholderDescriptor {
                 label: "embedded_default_black_cube",
@@ -75,7 +107,16 @@ impl TextureBindKind {
                 dimension: wgpu::TextureDimension::D2,
                 view_dimension: Some(wgpu::TextureViewDimension::Cube),
                 depth_or_array_layers: 6,
+                format,
             },
+            (
+                TextureBindKind::Tex3D | TextureBindKind::Cube,
+                PlaceholderTextureColor::FlatNormal,
+            ) => {
+                unreachable!(
+                    "FlatNormal placeholder is 2D-only; normal-map fallbacks never request a 3D or cube view"
+                )
+            }
         }
     }
 }
@@ -86,6 +127,7 @@ struct PlaceholderDescriptor {
     dimension: wgpu::TextureDimension,
     view_dimension: Option<wgpu::TextureViewDimension>,
     depth_or_array_layers: u32,
+    format: wgpu::TextureFormat,
 }
 
 fn create_placeholder(
@@ -104,7 +146,7 @@ fn create_placeholder(
         mip_level_count: 1,
         sample_count: 1,
         dimension: desc.dimension,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: desc.format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     }));
@@ -129,6 +171,17 @@ pub(super) fn create_white(device: &wgpu::Device, kind: TextureBindKind) -> Plac
 /// Allocates a 1x1 black texture and a default view for `kind`.
 pub(super) fn create_black(device: &wgpu::Device, kind: TextureBindKind) -> PlaceholderTexture {
     create_placeholder(device, kind, PlaceholderTextureColor::Black)
+}
+
+/// Allocates a 1x1 flat tangent-space normal texture (`(0.5, 0.5, 1.0)`) in linear `Rgba8Unorm`.
+///
+/// Used as the fallback view for normal-map slots so missing/unloaded bump maps render as a flat
+/// surface rather than the tilted `(1, 1, 1)` direction a white placeholder decodes to.
+pub(super) fn create_flat_normal(
+    device: &wgpu::Device,
+    kind: TextureBindKind,
+) -> PlaceholderTexture {
+    create_placeholder(device, kind, PlaceholderTextureColor::FlatNormal)
 }
 
 fn upload_placeholder(
@@ -179,4 +232,18 @@ pub(super) fn upload_white(queue: &wgpu::Queue, white: &PlaceholderTexture, kind
 /// Uploads a single black texel into every layer of `black` (1 layer for 2D / 3D, 6 for cubes).
 pub(super) fn upload_black(queue: &wgpu::Queue, black: &PlaceholderTexture, kind: TextureBindKind) {
     upload_placeholder(queue, black, kind, PlaceholderTextureColor::Black);
+}
+
+/// Uploads a single flat-normal texel `(128, 128, 255, 255)` into `flat_normal`.
+pub(super) fn upload_flat_normal(
+    queue: &wgpu::Queue,
+    flat_normal: &PlaceholderTexture,
+    kind: TextureBindKind,
+) {
+    upload_placeholder(
+        queue,
+        flat_normal,
+        kind,
+        PlaceholderTextureColor::FlatNormal,
+    );
 }
