@@ -272,44 +272,33 @@ fn shared_pbs_lighting_roots_do_not_duplicate_clustered_lighting() -> io::Result
     Ok(())
 }
 
-/// PBS DualSided materials should shade backfaces as a second opaque surface, not as light leaking
-/// through the front side. The visible-side frame must be shared so the metallic/specular variants
-/// cannot drift back to tangent-Z or world-Z flips.
-
 #[test]
-fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> {
-    let normal_src = source_file(manifest_dir().join("shaders/modules/pbs/normal.wgsl"))?;
-    for required in [
-        "fn visible_side_tbn(",
-        "select(-1.0, 1.0, front_facing)",
-        "tbn[0] * side",
-        "tbn[1] * side",
-        "tbn[2] * side",
-    ] {
-        assert!(
-            normal_src.contains(required),
-            "pbs/normal.wgsl must define visible-side TBN helper containing `{required}`"
-        );
-    }
-
+fn pbs_41_50_shaders_flip_backface_tangent_z_like_unity() -> io::Result<()> {
     let mut offenders = Vec::new();
     for file_name in [
+        "pbsdisplacespecular.wgsl",
+        "pbsdisplacespeculartransparent.wgsl",
+        "pbsdisplacetransparent.wgsl",
+        "pbsdistancelerp.wgsl",
+        "pbsdistancelerpspecular.wgsl",
+        "pbsdistancelerpspeculartransparent.wgsl",
+        "pbsdistancelerptransparent.wgsl",
         "pbsdualsided.wgsl",
         "pbsdualsidedspecular.wgsl",
         "pbsdualsidedtransparent.wgsl",
-        "pbsdualsidedtransparentspecular.wgsl",
     ] {
         let src = material_source(file_name)?;
-        for required in ["@builtin(front_facing)", "pnorm::visible_side_tbn("] {
+        for required in [
+            "@builtin(front_facing)",
+            "pnorm::orthonormal_tbn(world_n, world_t)",
+            "ts_n.z = -ts_n.z;",
+            "n = -n;",
+        ] {
             if !src.contains(required) {
                 offenders.push(format!("{file_name} must contain `{required}`"));
             }
         }
-        for forbidden in [
-            "ts_n.z = -ts_n.z",
-            "ts.z = -ts.z",
-            "sample_optional_world_normal(",
-        ] {
+        for forbidden in ["pnorm::visible_side_tbn(", "sample_optional_world_normal("] {
             if src.contains(forbidden) {
                 offenders.push(format!("{file_name} must not contain `{forbidden}`"));
             }
@@ -318,9 +307,43 @@ fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> 
 
     assert!(
         offenders.is_empty(),
-        "PBS DualSided shaders must orient normals through the shared visible-side TBN:\n  {}",
+        "PBS 41-50 shaders must mirror Unity's tangent-Z backface normal flip:\n  {}",
         offenders.join("\n  ")
     );
+    Ok(())
+}
+
+#[test]
+fn pbs_41_50_alpha_clip_uses_computed_albedo_alpha() -> io::Result<()> {
+    for file_name in [
+        "pbsdisplacespecular.wgsl",
+        "pbsdisplacespeculartransparent.wgsl",
+        "pbsdisplacetransparent.wgsl",
+        "pbsdualsided.wgsl",
+        "pbsdualsidedspecular.wgsl",
+    ] {
+        let src = material_source(file_name)?;
+        assert!(
+            !src.contains("texture_alpha_base_mip"),
+            "{file_name} must clip against the computed albedo alpha, not a base-mip resample"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn pbs_dualsided_emission_is_keyword_gated_only() -> io::Result<()> {
+    for file_name in ["pbsdualsidedspecular.wgsl", "pbsdualsidedtransparent.wgsl"] {
+        let src = material_source(file_name)?;
+        assert!(
+            src.contains("var emission = mat._EmissionColor.rgb;"),
+            "{file_name} must start emission from _EmissionColor"
+        );
+        assert!(
+            !src.contains("dot(emission_color, emission_color)"),
+            "{file_name} must not skip emission by inspecting _EmissionColor at runtime"
+        );
+    }
     Ok(())
 }
 

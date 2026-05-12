@@ -70,6 +70,239 @@ fn pbsdualsided_decodes_keywords_from_variant_bits() -> io::Result<()> {
 }
 
 #[test]
+fn pbsdualsidedspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdualsidedspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+            "VCOLOR_ALBEDO",
+            "VCOLOR_EMIT",
+            "VCOLOR_SPECULAR",
+        ],
+        &[
+            ("PBSDS_KW_ALBEDOTEX", 0),
+            ("PBSDS_KW_ALPHACLIP", 1),
+            ("PBSDS_KW_EMISSIONTEX", 2),
+            ("PBSDS_KW_NORMALMAP", 3),
+            ("PBSDS_KW_OCCLUSION", 4),
+            ("PBSDS_KW_SPECULARMAP", 5),
+            ("PBSDS_KW_VCOLOR_ALBEDO", 6),
+            ("PBSDS_KW_VCOLOR_EMIT", 7),
+            ("PBSDS_KW_VCOLOR_SPECULAR", 8),
+        ],
+    )
+}
+
+#[test]
+fn pbsdualsidedtransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdualsidedtransparent.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "VCOLOR_ALBEDO",
+            "VCOLOR_EMIT",
+            "VCOLOR_METALLIC",
+        ],
+        &[
+            ("PBSDST_KW_ALBEDOTEX", 0),
+            ("PBSDST_KW_EMISSIONTEX", 1),
+            ("PBSDST_KW_METALLICMAP", 2),
+            ("PBSDST_KW_NORMALMAP", 3),
+            ("PBSDST_KW_OCCLUSION", 4),
+            ("PBSDST_KW_VCOLOR_ALBEDO", 5),
+            ("PBSDST_KW_VCOLOR_EMIT", 6),
+            ("PBSDST_KW_VCOLOR_METALLIC", 7),
+        ],
+    )
+}
+
+#[test]
+fn pbsdisplacespecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdisplacespecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+            "OBJECT_POS_OFFSET",
+            "UV_OFFSET",
+            "VERTEX_OFFSET",
+            "VERTEX_POS_OFFSET",
+        ],
+        &[
+            ("PBSDISPSPEC_KW_ALBEDOTEX", 0),
+            ("PBSDISPSPEC_KW_ALPHACLIP", 1),
+            ("PBSDISPSPEC_KW_EMISSIONTEX", 2),
+            ("PBSDISPSPEC_KW_NORMALMAP", 3),
+            ("PBSDISPSPEC_KW_OCCLUSION", 4),
+            ("PBSDISPSPEC_KW_SPECULARMAP", 5),
+            ("PBSDISPSPEC_KW_OBJECT_POS_OFFSET", 6),
+            ("PBSDISPSPEC_KW_UV_OFFSET", 7),
+            ("PBSDISPSPEC_KW_VERTEX_OFFSET", 8),
+            ("PBSDISPSPEC_KW_VERTEX_POS_OFFSET", 9),
+        ],
+    )
+}
+
+#[test]
+fn pbsdisplacespeculartransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdisplacespeculartransparent.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+            "OBJECT_POS_OFFSET",
+            "UV_OFFSET",
+            "VERTEX_OFFSET",
+            "VERTEX_POS_OFFSET",
+        ],
+        &[
+            ("PBSDISPLACESPECTRANS_KW_ALBEDOTEX", 0),
+            ("PBSDISPLACESPECTRANS_KW_ALPHACLIP", 1),
+            ("PBSDISPLACESPECTRANS_KW_EMISSIONTEX", 2),
+            ("PBSDISPLACESPECTRANS_KW_NORMALMAP", 3),
+            ("PBSDISPLACESPECTRANS_KW_OCCLUSION", 4),
+            ("PBSDISPLACESPECTRANS_KW_SPECULARMAP", 5),
+            ("PBSDISPLACESPECTRANS_KW_OBJECT_POS_OFFSET", 6),
+            ("PBSDISPLACESPECTRANS_KW_UV_OFFSET", 7),
+            ("PBSDISPLACESPECTRANS_KW_VERTEX_OFFSET", 8),
+            ("PBSDISPLACESPECTRANS_KW_VERTEX_POS_OFFSET", 9),
+        ],
+    )
+}
+
+#[test]
+fn pbsdisplacetransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdisplacetransparent.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "OBJECT_POS_OFFSET",
+            "UV_OFFSET",
+            "VERTEX_OFFSET",
+            "VERTEX_POS_OFFSET",
+        ],
+        &[
+            ("PBSDISPT_KW_ALBEDOTEX", 0),
+            ("PBSDISPT_KW_ALPHACLIP", 1),
+            ("PBSDISPT_KW_EMISSIONTEX", 2),
+            ("PBSDISPT_KW_METALLICMAP", 3),
+            ("PBSDISPT_KW_NORMALMAP", 4),
+            ("PBSDISPT_KW_OCCLUSION", 5),
+            ("PBSDISPT_KW_OBJECT_POS_OFFSET", 6),
+            ("PBSDISPT_KW_UV_OFFSET", 7),
+            ("PBSDISPT_KW_VERTEX_OFFSET", 8),
+            ("PBSDISPT_KW_VERTEX_POS_OFFSET", 9),
+        ],
+    )
+}
+
+#[test]
+fn pbsdistancelerp_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdistancelerp.wgsl",
+        &[
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "LOCAL_SPACE",
+            "OVERRIDE_DISPLACE_DIRECTION",
+            "WORLD_SPACE",
+        ],
+        &[
+            ("PBSDL_KW_METALLICMAP", 0),
+            ("PBSDL_KW_NORMALMAP", 1),
+            ("PBSDL_KW_LOCAL_SPACE", 2),
+            ("PBSDL_KW_OVERRIDE_DISPLACE_DIRECTION", 3),
+            ("PBSDL_KW_WORLD_SPACE", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsdistancelerpspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdistancelerpspecular.wgsl",
+        &[
+            "_NORMALMAP",
+            "_SPECULARMAP",
+            "LOCAL_SPACE",
+            "OVERRIDE_DISPLACE_DIRECTION",
+            "WORLD_SPACE",
+        ],
+        &[
+            ("PBSDLSPEC_KW_NORMALMAP", 0),
+            ("PBSDLSPEC_KW_SPECULARMAP", 1),
+            ("PBSDLSPEC_KW_LOCAL_SPACE", 2),
+            ("PBSDLSPEC_KW_OVERRIDE_DISPLACE_DIRECTION", 3),
+            ("PBSDLSPEC_KW_WORLD_SPACE", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsdistancelerpspeculartransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdistancelerpspeculartransparent.wgsl",
+        &[
+            "_NORMALMAP",
+            "_SPECULARMAP",
+            "LOCAL_SPACE",
+            "OVERRIDE_DISPLACE_DIRECTION",
+            "WORLD_SPACE",
+        ],
+        &[
+            ("PBSDLSPECT_KW_NORMALMAP", 0),
+            ("PBSDLSPECT_KW_SPECULARMAP", 1),
+            ("PBSDLSPECT_KW_LOCAL_SPACE", 2),
+            ("PBSDLSPECT_KW_OVERRIDE_DISPLACE_DIRECTION", 3),
+            ("PBSDLSPECT_KW_WORLD_SPACE", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsdistancelerptransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsdistancelerptransparent.wgsl",
+        &[
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "LOCAL_SPACE",
+            "OVERRIDE_DISPLACE_DIRECTION",
+            "WORLD_SPACE",
+        ],
+        &[
+            ("PBSDLT_KW_METALLICMAP", 0),
+            ("PBSDLT_KW_NORMALMAP", 1),
+            ("PBSDLT_KW_LOCAL_SPACE", 2),
+            ("PBSDLT_KW_OVERRIDE_DISPLACE_DIRECTION", 3),
+            ("PBSDLT_KW_WORLD_SPACE", 4),
+        ],
+    )
+}
+
+#[test]
 fn pbsintersectspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
     assert_variant_bits_migration(
         "pbsintersectspecular.wgsl",

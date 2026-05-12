@@ -12,7 +12,6 @@
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::variant_bits as vb
 #import renderide::core::uv as uvu
 #import renderide::core::normal_decode as nd
@@ -74,13 +73,21 @@ struct SurfaceData {
 }
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
-    let tbn = pnorm::visible_side_tbn(world_n, world_t, front_facing);
-    var ts_n = vec3<f32>(0.0, 0.0, 1.0);
-    if (kw_NORMALMAP()) {
-        ts_n = nd::decode_ts_normal_with_placeholder_sample(
-            textureSample(_NormalMap, _NormalMap_sampler, uv_main),
-            mat._NormalScale,
-        );
+    if (!kw_NORMALMAP()) {
+        var n = normalize(world_n);
+        if (!front_facing) {
+            n = -n;
+        }
+        return n;
+    }
+
+    let tbn = pnorm::orthonormal_tbn(world_n, world_t);
+    var ts_n = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uv_main),
+        mat._NormalScale,
+    );
+    if (!front_facing) {
+        ts_n.z = -ts_n.z;
     }
     return normalize(tbn * ts_n);
 }
@@ -101,15 +108,7 @@ fn sample_surface(
     if (kw_VCOLOR_ALBEDO()) {
         albedo = albedo * vertex_color;
     }
-    let vertex_alpha = select(1.0, vertex_color.a, kw_VCOLOR_ALBEDO());
-    let clip_alpha = select(
-        albedo.a,
-        mat._Color.a
-            * vertex_alpha
-            * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
-        kw_ALBEDOTEX(),
-    );
-    if (kw_ALPHACLIP() && clip_alpha <= mat._AlphaClip) {
+    if (kw_ALPHACLIP() && albedo.a <= mat._AlphaClip) {
         discard;
     }
 
@@ -129,13 +128,9 @@ fn sample_surface(
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
-    let emission_color = mat._EmissionColor.rgb;
-    var emission = vec3<f32>(0.0);
-    if (dot(emission_color, emission_color) > 1e-8) {
-        emission = emission_color;
-        if (kw_EMISSIONTEX()) {
-            emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
-        }
+    var emission = mat._EmissionColor.rgb;
+    if (kw_EMISSIONTEX()) {
+        emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
     if (kw_VCOLOR_EMIT()) {
         emission = emission * vertex_color.rgb;
