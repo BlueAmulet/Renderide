@@ -135,6 +135,20 @@ fn sample_probe_sh2(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
     return sh * max(probe.params.x, 0.0);
 }
 
+fn ambient_probe_or_zero(normal_ws: vec3<f32>) -> vec3<f32> {
+    if (shamb::ambient_probe_is_valid()) {
+        return shamb::ambient_probe(normal_ws);
+    }
+    return vec3<f32>(0.0);
+}
+
+fn sample_probe_sh2_or_ambient(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
+    if (probe_has_any_sh2(atlas_index)) {
+        return sample_probe_sh2(atlas_index, normal_ws);
+    }
+    return ambient_probe_or_zero(normal_ws);
+}
+
 fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec3<f32> {
     if (!enabled) {
         return vec3<f32>(0.0);
@@ -143,11 +157,11 @@ fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec
     let count = pd::reflection_probe_hit_count(draw);
     let indices = pd::reflection_probe_indices(draw);
     if (count > 0u) {
-        let first = sample_probe_sh2(indices.x, normal_ws);
+        let first = sample_probe_sh2_or_ambient(indices.x, normal_ws);
         if (count < 2u || indices.y == 0u) {
             return first;
         }
-        let second = sample_probe_sh2(indices.y, normal_ws);
+        let second = sample_probe_sh2_or_ambient(indices.y, normal_ws);
         return mix(first, second, pd::reflection_probe_second_weight(draw));
     }
     if (shamb::ambient_probe_is_valid()) {

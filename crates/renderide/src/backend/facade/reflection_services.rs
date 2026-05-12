@@ -7,7 +7,8 @@ use crate::ipc::SharedMemoryAccessor;
 use crate::materials::MaterialSystem;
 use crate::reflection_probes::ReflectionProbeSh2System;
 use crate::reflection_probes::specular::{
-    ReflectionProbeFrameSelection, ReflectionProbeSpecularSystem, RuntimeReflectionProbeCapture,
+    ReflectionProbeFrameSelection, ReflectionProbeSpecularMaintainParams,
+    ReflectionProbeSpecularSystem, RuntimeReflectionProbeCapture,
 };
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::{FrameSubmitData, RenderingContext};
@@ -69,15 +70,18 @@ impl ReflectionProbeServices {
         materials: &MaterialSystem,
         asset_transfers: &AssetTransferQueue,
         render_context: RenderingContext,
+        reflection_probe_sh2_enabled: bool,
     ) -> Option<ReflectionProbeSpecularResources> {
-        self.specular.maintain(
-            gpu,
-            scene,
-            materials,
-            asset_transfers,
-            render_context,
-            &mut self.sh2,
-        );
+        self.specular
+            .maintain(ReflectionProbeSpecularMaintainParams {
+                gpu,
+                scene,
+                materials,
+                assets: asset_transfers,
+                render_context,
+                sh2_system: &mut self.sh2,
+                reflection_probe_sh2_enabled,
+            });
         self.specular.resources()
     }
 

@@ -68,6 +68,12 @@ labeled_enum! {
             label: "Post-Processing",
             aliases: ["post-processing", "post"],
         },
+        /// Experimental renderer feature flags.
+        Experimental => {
+            persist: "experimental",
+            label: "Experimental",
+            aliases: ["experiments"],
+        },
     }
 }
 
@@ -143,6 +149,8 @@ pub struct DebugHudRendererConfigTabVisibility {
     pub debug: bool,
     /// Whether the **Post-Processing** tab is open.
     pub post_processing: bool,
+    /// Whether the **Experimental** tab is open.
+    pub experimental: bool,
 }
 
 impl Default for DebugHudRendererConfigTabVisibility {
@@ -152,6 +160,7 @@ impl Default for DebugHudRendererConfigTabVisibility {
             rendering: true,
             debug: true,
             post_processing: true,
+            experimental: true,
         }
     }
 }
@@ -164,6 +173,7 @@ impl DebugHudRendererConfigTabVisibility {
             DebugHudRendererConfigTab::Rendering => self.rendering,
             DebugHudRendererConfigTab::Debug => self.debug,
             DebugHudRendererConfigTab::PostProcessing => self.post_processing,
+            DebugHudRendererConfigTab::Experimental => self.experimental,
         }
     }
 
@@ -174,12 +184,16 @@ impl DebugHudRendererConfigTabVisibility {
             DebugHudRendererConfigTab::Rendering => self.rendering = value,
             DebugHudRendererConfigTab::Debug => self.debug = value,
             DebugHudRendererConfigTab::PostProcessing => self.post_processing = value,
+            DebugHudRendererConfigTab::Experimental => self.experimental = value,
         }
     }
 
     /// Returns `true` when every tab is open.
     pub fn all_open(self) -> bool {
-        self.display && self.rendering && self.debug && self.post_processing
+        DebugHudRendererConfigTab::ALL
+            .iter()
+            .copied()
+            .all(|tab| self.is_open(tab))
     }
 }
 
@@ -275,17 +289,17 @@ mod tests {
     fn hud_tab_tokens_roundtrip() {
         let mut s = RendererSettings::default();
         s.debug.hud.main_tab = DebugHudMainTab::GpuPasses;
-        s.debug.hud.renderer_config_tab = DebugHudRendererConfigTab::PostProcessing;
+        s.debug.hud.renderer_config_tab = DebugHudRendererConfigTab::Experimental;
 
         let text = toml::to_string(&s).expect("serialize");
         assert!(text.contains("main_tab = \"gpu_passes\""));
-        assert!(text.contains("renderer_config_tab = \"post_processing\""));
+        assert!(text.contains("renderer_config_tab = \"experimental\""));
 
         let decoded: RendererSettings = toml::from_str(&text).expect("deserialize");
         assert_eq!(decoded.debug.hud.main_tab, DebugHudMainTab::GpuPasses);
         assert_eq!(
             decoded.debug.hud.renderer_config_tab,
-            DebugHudRendererConfigTab::PostProcessing
+            DebugHudRendererConfigTab::Experimental
         );
     }
 
@@ -329,8 +343,15 @@ mod tests {
 
         let mut config = DebugHudRendererConfigTabVisibility::default();
         assert!(config.all_open());
+        for &tab in DebugHudRendererConfigTab::ALL {
+            assert!(config.is_open(tab), "{tab:?} should default open");
+        }
         config.set_open(DebugHudRendererConfigTab::Debug, false);
         assert!(!config.is_open(DebugHudRendererConfigTab::Debug));
+        assert!(!config.all_open());
+        config.set_open(DebugHudRendererConfigTab::Debug, true);
+        config.set_open(DebugHudRendererConfigTab::Experimental, false);
+        assert!(!config.is_open(DebugHudRendererConfigTab::Experimental));
         assert!(!config.all_open());
     }
 }
