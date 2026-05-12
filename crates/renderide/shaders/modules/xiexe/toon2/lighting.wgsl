@@ -283,7 +283,34 @@ fn indirect_reflection_branch(
     ambient: vec3<f32>,
     dominant_light_col_atten: vec3<f32>,
 ) -> vec3<f32> {
-    if (xvb::matcap_enabled()) {
+    return indirect_reflection_branch_for_layout(
+        s,
+        normal,
+        view_dir,
+        world_pos,
+        view_layer,
+        perceptual_roughness,
+        specular_reflectance,
+        ambient,
+        dominant_light_col_atten,
+        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
+    );
+}
+
+/// Samples the indirect-reflection contribution for a selected XSToon keyword layout.
+fn indirect_reflection_branch_for_layout(
+    s: xb::SurfaceData,
+    normal: vec3<f32>,
+    view_dir: vec3<f32>,
+    world_pos: vec3<f32>,
+    view_layer: u32,
+    perceptual_roughness: f32,
+    specular_reflectance: vec3<f32>,
+    ambient: vec3<f32>,
+    dominant_light_col_atten: vec3<f32>,
+    keyword_layout: u32,
+) -> vec3<f32> {
+    if (xvb::matcap_enabled_for_layout(keyword_layout)) {
         let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);
         let uv = matcap_uv(stereo_view_dir, normal);
         let lod = clamp((1.0 - clamp(perceptual_roughness, 0.0, 1.0)) * SPECCUBE_LOD_STEPS, 0.0, SPECCUBE_LOD_STEPS);
@@ -294,7 +321,7 @@ fn indirect_reflection_branch(
 
     let roughness = clamp(perceptual_roughness, 0.045, 1.0);
     let n_dot_v = clamp(dot(normal, view_dir), 0.0, 1.0);
-    let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());
+    let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr_for_layout(keyword_layout));
     let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);
     let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);
     let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);
@@ -324,9 +351,32 @@ fn indirect_specular(
     dominant_light_col_atten: vec3<f32>,
     dominant_ramp: vec3<f32>,
 ) -> vec3<f32> {
+    return indirect_specular_for_layout(
+        s,
+        view_dir,
+        world_pos,
+        view_layer,
+        ambient,
+        dominant_light_col_atten,
+        dominant_ramp,
+        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
+    );
+}
+
+/// Indirect-specular contribution for a selected XSToon keyword layout.
+fn indirect_specular_for_layout(
+    s: xb::SurfaceData,
+    view_dir: vec3<f32>,
+    world_pos: vec3<f32>,
+    view_layer: u32,
+    ambient: vec3<f32>,
+    dominant_light_col_atten: vec3<f32>,
+    dominant_ramp: vec3<f32>,
+    keyword_layout: u32,
+) -> vec3<f32> {
     let specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);
 
-    var spec = indirect_reflection_branch(
+    var spec = indirect_reflection_branch_for_layout(
         s,
         s.normal,
         view_dir,
@@ -336,9 +386,10 @@ fn indirect_specular(
         specular_reflectance,
         ambient,
         dominant_light_col_atten,
+        keyword_layout,
     );
 
-    if (!xvb::matcap_enabled()) {
+    if (!xvb::matcap_enabled_for_layout(keyword_layout)) {
         let roughness = clamp(s.roughness, 0.0, 1.0);
         spec = mix(spec, spec * dominant_ramp, roughness);
     }
@@ -350,7 +401,12 @@ fn indirect_specular(
 /// returns `_EmissionMap.rgb * _EmissionColor.rgb` in the base pass; the `_EmissionToDiffuse`
 /// and `_ScaleWithLight*` paths in the upstream reference are commented out.
 fn emission_color(s: xb::SurfaceData, base_pass: bool) -> vec3<f32> {
-    if (!base_pass || !xvb::emission_map_enabled()) {
+    return emission_color_for_layout(s, base_pass, xvb::XTOON_KEYWORD_LAYOUT_GENERIC);
+}
+
+/// Base-pass emission contribution for a selected XSToon keyword layout.
+fn emission_color_for_layout(s: xb::SurfaceData, base_pass: bool, keyword_layout: u32) -> vec3<f32> {
+    if (!base_pass || !xvb::emission_map_enabled_for_layout(keyword_layout)) {
         return vec3<f32>(0.0);
     }
     return s.emission * xb::mat._EmissionColor.rgb;
@@ -377,6 +433,29 @@ fn clustered_toon_lighting(
     include_local: bool,
     base_pass: bool,
 ) -> vec3<f32> {
+    return clustered_toon_lighting_for_layout(
+        frag_xy,
+        s,
+        world_pos,
+        view_layer,
+        include_directional,
+        include_local,
+        base_pass,
+        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
+    );
+}
+
+/// Forward-pass clustered light walk for a selected XSToon keyword layout.
+fn clustered_toon_lighting_for_layout(
+    frag_xy: vec2<f32>,
+    s: xb::SurfaceData,
+    world_pos: vec3<f32>,
+    view_layer: u32,
+    include_directional: bool,
+    include_local: bool,
+    base_pass: bool,
+    keyword_layout: u32,
+) -> vec3<f32> {
     let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let ambient = indirect_diffuse(s, world_pos, view_layer);
     let env = environment_tint(s, view_dir, world_pos, view_layer);
@@ -388,7 +467,7 @@ fn clustered_toon_lighting(
     let indirect_specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);
     let n_dot_v = clamp(dot(s.normal, view_dir), 0.0, 1.0);
     let indirect_specular_enabled =
-        rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());
+        rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr_for_layout(keyword_layout));
     let indirect_dfg = brdf::sample_ibl_dfg_lut(s.roughness, n_dot_v);
     let indirect_specular_energy = brdf::indirect_specular_energy_from_dfg(
         indirect_dfg,
@@ -483,7 +562,7 @@ fn clustered_toon_lighting(
     // blend-mode multiplicative / subtractive branches are commented out in Unity 2.0 and
     // are intentionally absent here.
     if (base_pass) {
-        let reflection = indirect_specular(
+        let reflection = indirect_specular_for_layout(
             s,
             view_dir,
             world_pos,
@@ -491,6 +570,7 @@ fn clustered_toon_lighting(
             ambient,
             dominant_light_col_atten,
             dominant_ramp,
+            keyword_layout,
         );
         col = col + reflection * clamp(s.reflectivity_mask, 0.0, 1.0);
     }
@@ -507,7 +587,7 @@ fn clustered_toon_lighting(
     col = col + sss;
 
     if (base_pass) {
-        col = col + emission_color(s, base_pass);
+        col = col + emission_color_for_layout(s, base_pass, keyword_layout);
     }
 
     return max(col, vec3<f32>(0.0));

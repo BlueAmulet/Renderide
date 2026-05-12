@@ -71,6 +71,27 @@ fn decode_normal_world(
     front_facing: bool,
     flip_back_face: bool,
 ) -> mat3x3<f32> {
+    return decode_normal_world_for_layout(
+        uv_normal,
+        world_n,
+        world_t,
+        world_b,
+        front_facing,
+        flip_back_face,
+        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
+    );
+}
+
+/// Builds a perturbed TBN from the interpolated geometry frame for a selected keyword layout.
+fn decode_normal_world_for_layout(
+    uv_normal: vec2<f32>,
+    world_n: vec3<f32>,
+    world_t: vec3<f32>,
+    world_b: vec3<f32>,
+    front_facing: bool,
+    flip_back_face: bool,
+    keyword_layout: u32,
+) -> mat3x3<f32> {
     var n = xb::safe_normalize(world_n, vec3<f32>(0.0, 0.0, 1.0));
     var t = xb::safe_normalize(world_t, vec3<f32>(1.0, 0.0, 0.0));
     var b = xb::safe_normalize(world_b, vec3<f32>(0.0, 1.0, 0.0));
@@ -81,7 +102,7 @@ fn decode_normal_world(
         b = -b;
     }
 
-    if (xvb::normal_map_enabled()) {
+    if (xvb::normal_map_enabled_for_layout(keyword_layout)) {
         let base_ts = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(xb::_BumpMap, xb::_BumpMap_sampler, uv_normal),
             xb::mat._BumpScale,
@@ -109,6 +130,33 @@ fn sample_surface(
     uv_secondary: vec2<f32>,
     color: vec4<f32>,
 ) -> xb::SurfaceData {
+    return sample_surface_for_layout(
+        flip_back_face,
+        front_facing,
+        world_pos,
+        world_n,
+        world_t,
+        world_b,
+        uv_primary,
+        uv_secondary,
+        color,
+        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
+    );
+}
+
+/// Decodes surface data for a selected XSToon keyword layout.
+fn sample_surface_for_layout(
+    flip_back_face: bool,
+    front_facing: bool,
+    world_pos: vec3<f32>,
+    world_n: vec3<f32>,
+    world_t: vec3<f32>,
+    world_b: vec3<f32>,
+    uv_primary: vec2<f32>,
+    uv_secondary: vec2<f32>,
+    color: vec4<f32>,
+    keyword_layout: u32,
+) -> xb::SurfaceData {
     let uv_albedo = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetAlbedo), xb::mat._MainTex_ST);
     let uv_normal = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetNormal), xb::mat._BumpMap_ST);
     let uv_metallic = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetMetallic), xb::mat._MetallicGlossMap_ST);
@@ -119,7 +167,7 @@ fn sample_surface(
 
     var albedo = textureSample(xb::_MainTex, xb::_MainTex_sampler, uv_albedo) * xb::mat._Color;
     let clip_alpha = xb::mat._Color.a * acs::texture_alpha_base_mip(xb::_MainTex, xb::_MainTex_sampler, uv_albedo);
-    if (xvb::vertex_color_albedo_enabled()) {
+    if (xvb::vertex_color_albedo_enabled_for_layout(keyword_layout)) {
         albedo = vec4<f32>(albedo.rgb * color.rgb, albedo.a);
     }
     // `diffuse_color` keeps the original (saturated) base color for tinting paths
@@ -133,19 +181,20 @@ fn sample_surface(
         flip_back_face && !front_facing,
     );
 
-    let tbn = decode_normal_world(
+    let tbn = decode_normal_world_for_layout(
         uv_normal,
         world_n,
         world_t,
         world_b,
         front_facing,
         flip_back_face,
+        keyword_layout,
     );
 
     var metallic = clamp(xb::mat._Metallic, 0.0, 1.0);
     var smoothness = clamp(xb::mat._Glossiness, 0.0, 1.0);
     let mg = textureSample(xb::_MetallicGlossMap, xb::_MetallicGlossMap_sampler, uv_metallic);
-    if (xvb::metallic_map_enabled()) {
+    if (xvb::metallic_map_enabled_for_layout(keyword_layout)) {
         metallic = clamp(xb::mat._Metallic * mg.r, 0.0, 1.0);
         smoothness = clamp(xb::mat._Glossiness * mg.a, 0.0, 1.0);
     }
@@ -162,23 +211,23 @@ fn sample_surface(
     let reflectivity_mask = textureSample(xb::_ReflectivityMask, xb::_ReflectivityMask_sampler, uv_reflectivity).r;
 
     var occlusion = vec3<f32>(1.0);
-    if (xvb::occlusion_enabled()) {
+    if (xvb::occlusion_enabled_for_layout(keyword_layout)) {
         let occ = textureSample(xb::_OcclusionMap, xb::_OcclusionMap_sampler, uv_occlusion).r;
         occlusion = mix(xb::mat._OcclusionColor.rgb, vec3<f32>(1.0), occ);
     }
 
     var emission = vec3<f32>(0.0);
-    if (xvb::emission_map_enabled()) {
+    if (xvb::emission_map_enabled_for_layout(keyword_layout)) {
         emission = textureSample(xb::_EmissionMap, xb::_EmissionMap_sampler, uv_emission).rgb;
     }
 
     var ramp_mask = 0.0;
-    if (xvb::ramp_mask_enabled()) {
+    if (xvb::ramp_mask_enabled_for_layout(keyword_layout)) {
         ramp_mask = textureSample(xb::_RampSelectionMask, xb::_RampSelectionMask_sampler, uv_primary).r;
     }
 
     var thickness = 1.0;
-    if (xvb::thickness_enabled()) {
+    if (xvb::thickness_enabled_for_layout(keyword_layout)) {
         thickness = textureSample(xb::_ThicknessMap, xb::_ThicknessMap_sampler, uv_thickness).r;
     }
 
