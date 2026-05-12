@@ -36,6 +36,16 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+/// Queue-gate acquisition policy for operations that can safely yield when the queue is busy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GpuQueueAccessMode {
+    /// Wait until the shared queue gate can be acquired.
+    #[default]
+    Blocking,
+    /// Return immediately when another queue owner currently holds the gate.
+    NonBlocking,
+}
+
 /// Shared mutex acquired before operations that may access the renderer's Vulkan queue.
 ///
 /// Instantiated once by [`super::GpuContext`] and cloned into the
@@ -57,5 +67,41 @@ impl GpuQueueAccessGate {
     /// call and drop the guard as soon as that call returns.
     pub fn lock(&self) -> parking_lot::MutexGuard<'_, ()> {
         self.inner.lock()
+    }
+
+    /// Attempts to lock the gate without waiting for the current owner.
+    pub fn try_lock(&self) -> Option<parking_lot::MutexGuard<'_, ()>> {
+        self.inner.try_lock()
+    }
+
+    /// Locks according to `mode`, returning `None` only for contended non-blocking access.
+    pub fn lock_for(&self, mode: GpuQueueAccessMode) -> Option<parking_lot::MutexGuard<'_, ()>> {
+        match mode {
+            GpuQueueAccessMode::Blocking => Some(self.lock()),
+            GpuQueueAccessMode::NonBlocking => self.try_lock(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GpuQueueAccessGate;
+
+    #[test]
+    fn try_lock_returns_none_when_gate_is_held() {
+        let gate = GpuQueueAccessGate::new();
+        let _held = gate.lock();
+
+        assert!(gate.try_lock().is_none());
+    }
+
+    #[test]
+    fn try_lock_succeeds_after_guard_drops() {
+        let gate = GpuQueueAccessGate::new();
+        {
+            let _held = gate.lock();
+        }
+
+        assert!(gate.try_lock().is_some());
     }
 }

@@ -227,14 +227,11 @@ fn nearest_special_layer_ancestor(
 
 /// Builds the matrix that maps points from `transform_index`'s local frame into
 /// `ancestor_index`'s local frame. Multiplies every intermediate node's local transform but
-/// **stops before** multiplying the ancestor's own local -- the ancestor's own local transform is
-/// the ancestor's pose relative to *its* parent, not part of expressing children in ancestor-local
-/// coordinates.
+/// stops before multiplying the ancestor's own local transform.
 ///
-/// Concrete bug this avoids: for overlay-layer items, the ancestor is the OverlayRoot slot. If
-/// the OverlayRoot has any local rotation / position / scale (it does -- it's positioned under
-/// `OverlayManager.Slot`), folding that into the model matrix here rotates / shifts every overlay
-/// draw by OverlayRoot's pose, breaking the screen-space layout that the overlay-ortho assumes.
+/// The ancestor's own local transform is the ancestor's pose relative to its parent, not part of
+/// expressing children in ancestor-local coordinates. For overlay-layer items this keeps
+/// `OverlayRoot` placement from shifting every screen-space overlay draw.
 fn matrix_from_ancestor_for_context(
     space: &RenderSpaceState,
     transform_index: usize,

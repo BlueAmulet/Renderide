@@ -3,7 +3,7 @@ use glam::{Vec3, Vec3A, Vec4};
 use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
-    REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
+    REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
 };
 use crate::materials::MaterialSystem;
 use crate::scene::{
@@ -71,17 +71,6 @@ fn resolve_runtime_capture_source(
         texture: capture.texture.clone(),
         view: capture.view.clone(),
     }))
-}
-
-pub(super) fn resolve_space_skybox_fallback_source(
-    skybox_material_asset_id: i32,
-    materials: &MaterialSystem,
-    assets: &AssetTransferQueue,
-) -> Option<SkyboxIblSource> {
-    if skybox_material_asset_id < 0 {
-        return None;
-    }
-    resolve_skybox_material_ibl_source(skybox_material_asset_id, materials, assets)
 }
 
 pub(super) fn resolve_baked_probe_source(
@@ -198,21 +187,6 @@ pub(super) fn metadata_for_spatial(
     }
 }
 
-pub(super) fn skybox_fallback_metadata(
-    mip_levels: u32,
-    sh2: Option<&RenderSH2>,
-) -> GpuReflectionProbeMetadata {
-    let mut metadata = GpuReflectionProbeMetadata {
-        params: [1.0, mip_levels.saturating_sub(1) as f32, 0.0, 0.0],
-        ..GpuReflectionProbeMetadata::default()
-    };
-    if let Some(sh2) = sh2 {
-        metadata.params[3] = REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX;
-        metadata.sh2 = pack_render_sh2_raw(sh2);
-    }
-    metadata
-}
-
 fn pack_render_sh2_raw(sh: &RenderSH2) -> [[f32; 4]; 9] {
     [
         [sh.sh0.x, sh.sh0.y, sh.sh0.z, 0.0],
@@ -258,40 +232,6 @@ mod tests {
         };
 
         assert!(resolve_baked_probe_source(state, &assets).is_none());
-    }
-
-    #[test]
-    fn missing_skybox_material_is_not_skybox_fallback_source() {
-        let materials = MaterialSystem::new();
-        let assets = AssetTransferQueue::new();
-
-        assert!(resolve_space_skybox_fallback_source(-1, &materials, &assets).is_none());
-    }
-
-    #[test]
-    fn skybox_fallback_metadata_allows_specular_while_sh2_is_pending() {
-        let metadata = skybox_fallback_metadata(5, None);
-
-        assert_eq!(metadata.params, [1.0, 4.0, 0.0, 0.0]);
-        assert_eq!(metadata.sh2, [[0.0; 4]; 9]);
-    }
-
-    #[test]
-    fn skybox_fallback_metadata_marks_completed_sh2_as_skybox_source() {
-        let sh = RenderSH2 {
-            sh0: Vec3::new(1.0, 2.0, 3.0),
-            sh8: Vec3::new(4.0, 5.0, 6.0),
-            ..RenderSH2::default()
-        };
-
-        let metadata = skybox_fallback_metadata(5, Some(&sh));
-
-        assert_eq!(
-            metadata.params,
-            [1.0, 4.0, 0.0, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX]
-        );
-        assert_eq!(metadata.sh2[0], [1.0, 2.0, 3.0, 0.0]);
-        assert_eq!(metadata.sh2[8], [4.0, 5.0, 6.0, 0.0]);
     }
 
     #[test]

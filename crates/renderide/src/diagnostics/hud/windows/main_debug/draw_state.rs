@@ -62,35 +62,9 @@ fn draw_filters(ui: &imgui::Ui, state: &mut HudUiState) {
     ui.checkbox("UI / alpha", &mut state.draw_state_ui_only);
     ui.same_line();
     ui.checkbox("Has override", &mut state.draw_state_only_overrides);
-    ui.same_line();
-    if ui.checkbox("Overlay only", &mut state.draw_state_overlay_only)
-        && state.draw_state_overlay_only
-    {
-        state.draw_state_hide_overlay = false;
-    }
-    ui.same_line();
-    if ui.checkbox("Hide overlay", &mut state.draw_state_hide_overlay)
-        && state.draw_state_hide_overlay
-    {
-        state.draw_state_overlay_only = false;
-    }
-    ui.set_next_item_width(120.0);
-    ui.input_text("Node", &mut state.draw_state_node_filter)
-        .hint("substring or id")
-        .build();
-    ui.same_line();
-    ui.set_next_item_width(180.0);
-    ui.input_text("Material / Pipeline", &mut state.draw_state_text_filter)
-        .hint("substring")
-        .build();
-    ui.same_line();
     if ui.small_button("Reset filters") {
         state.draw_state_ui_only = false;
         state.draw_state_only_overrides = false;
-        state.draw_state_overlay_only = false;
-        state.draw_state_hide_overlay = false;
-        state.draw_state_node_filter.clear();
-        state.draw_state_text_filter.clear();
     }
 }
 
@@ -98,23 +72,11 @@ fn filtered_rows<'a>(
     d: &'a FrameDiagnosticsSnapshot,
     state: &HudUiState,
 ) -> Vec<&'a WorldMeshDrawStateRow> {
-    let node_filter = state.draw_state_node_filter.trim();
-    let text_filter = state.draw_state_text_filter.trim().to_ascii_lowercase();
     d.mesh_draw
         .draw_state_rows
         .iter()
         .filter(|row| !state.draw_state_ui_only || draw_state_is_uiish(row))
         .filter(|row| !state.draw_state_only_overrides || draw_state_has_override(row))
-        .filter(|row| !state.draw_state_overlay_only || row.is_overlay)
-        .filter(|row| !state.draw_state_hide_overlay || !row.is_overlay)
-        .filter(|row| node_filter.is_empty() || row.node_id.to_string().contains(node_filter))
-        .filter(|row| {
-            text_filter.is_empty()
-                || pipeline_label(&row.pipeline)
-                    .to_ascii_lowercase()
-                    .contains(&text_filter)
-                || row.material_asset_id.to_string().contains(&text_filter)
-        })
         .collect()
 }
 

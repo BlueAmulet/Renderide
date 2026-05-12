@@ -60,3 +60,9 @@ fn depth_fade(frag_pos: vec4<f32>, world_pos: vec3<f32>, view_layer: u32, diviso
     let diff = scene_linear_depth(frag_pos, view_layer) - fragment_linear_depth(world_pos, view_layer);
     return clamp(diff / denom, 0.0, 1.0);
 }
+
+fn depth_fade_at_uv(uv: vec2<f32>, world_pos: vec3<f32>, view_layer: u32, divisor: f32) -> f32 {
+    let denom = max(abs(divisor), 1e-6);
+    let diff = scene_linear_depth_at_uv(uv, view_layer) - fragment_linear_depth(world_pos, view_layer);
+    return clamp(diff / denom, 0.0, 1.0);
+}

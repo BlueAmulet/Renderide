@@ -2,10 +2,24 @@
 
 use std::sync::Arc;
 
+use crate::gpu::{GpuQueueAccessGate, GpuQueueAccessMode};
 use crate::ipc::DualQueueIpc;
 use crate::shared::RendererCommand;
 
 use super::integrator::StepResult;
+
+/// GPU handles and queue-access policy shared by one texture-family upload step.
+#[derive(Clone, Copy)]
+pub(super) struct TextureTaskGpu<'a> {
+    /// Device used by texture decode and upload planning paths.
+    pub(super) device: &'a Arc<wgpu::Device>,
+    /// Queue used for texture writes.
+    pub(super) queue: &'a wgpu::Queue,
+    /// Queue access gate shared with submit and OpenXR queue calls.
+    pub(super) queue_access_gate: &'a GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for texture writes.
+    pub(super) queue_access_mode: GpuQueueAccessMode,
+}
 
 /// Returns a resident texture handle or logs a consistent missing-resource warning.
 pub(super) fn resident_texture_arc(

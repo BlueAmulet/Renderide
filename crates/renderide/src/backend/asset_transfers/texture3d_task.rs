@@ -1,7 +1,5 @@
 //! Cooperative [`SetTexture3DData`] integration: one mip per step.
 
-use std::sync::Arc;
-
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::shared::{
     RendererCommand, SetTexture3DData, SetTexture3DFormat, SetTexture3DResult,
@@ -11,7 +9,7 @@ use crate::shared::{
 use super::AssetTransferQueue;
 use super::integrator::StepResult;
 use super::texture_task_common::{
-    failed_upload, missing_payload, resident_texture_arc, send_background_result,
+    TextureTaskGpu, failed_upload, missing_payload, resident_texture_arc, send_background_result,
 };
 use super::texture3d_upload_plan::{
     Texture3dUploadCompletion, Texture3dUploadPlan, Texture3dUploadStepper,
@@ -49,12 +47,10 @@ impl Texture3dUploadTask {
     }
 
     /// Runs at most one integration sub-step.
-    pub fn step(
+    pub(super) fn step(
         &mut self,
         queue: &mut AssetTransferQueue,
-        device: &Arc<wgpu::Device>,
-        gpu_queue: &wgpu::Queue,
-        gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
+        gpu: TextureTaskGpu<'_>,
         shm: &mut SharedMemoryAccessor,
         ipc: &mut Option<&mut DualQueueIpc>,
     ) -> StepResult {
@@ -76,9 +72,10 @@ impl Texture3dUploadTask {
         let completion = self.stepper.step(
             shm,
             Texture3dUploadPlan {
-                device: device.as_ref(),
-                queue: gpu_queue,
-                gpu_queue_access_gate,
+                device: gpu.device.as_ref(),
+                queue: gpu.queue,
+                gpu_queue_access_gate: gpu.queue_access_gate,
+                queue_access_mode: gpu.queue_access_mode,
                 texture,
                 format: &self.format,
                 wgpu_format: self.wgpu_format,
@@ -99,6 +96,7 @@ impl Texture3dUploadTask {
                 self.finalize_success(queue, ipc, uploaded_mips);
                 StepResult::Done
             }
+            Err(e) if e.is_queue_access_busy() => StepResult::YieldBackground,
             Err(e) => {
                 failed_upload("texture3d", id, &e);
                 self.finalize_failure(ipc);

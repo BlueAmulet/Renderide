@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::gpu::{GpuLimits, GpuQueueAccessGate};
+use crate::gpu::{GpuLimits, GpuQueueAccessGate, GpuQueueAccessMode};
 
 use super::super::AssetTransferQueue;
 
@@ -17,12 +17,16 @@ pub(super) struct GpuHandles {
 
 impl GpuHandles {
     /// Borrows the handles as a step-time context.
-    pub(super) fn as_context(&self) -> AssetUploadGpuContext<'_> {
+    pub(super) fn as_context(
+        &self,
+        queue_access_mode: GpuQueueAccessMode,
+    ) -> AssetUploadGpuContext<'_> {
         AssetUploadGpuContext {
             device: &self.device,
             gpu_limits: &self.gpu_limits,
             queue: &self.queue,
             gpu_queue_access_gate: &self.gate,
+            queue_access_mode,
         }
     }
 }
@@ -57,4 +61,6 @@ pub(super) struct AssetUploadGpuContext<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub(super) gpu_queue_access_gate: &'a GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for texture writes in this drain.
+    pub(super) queue_access_mode: GpuQueueAccessMode,
 }

@@ -1,7 +1,5 @@
 //! Cooperative [`SetCubemapData`] integration: one face x mip per step.
 
-use std::sync::Arc;
-
 use crate::assets::texture::upload_uses_storage_v_inversion;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::shared::{
@@ -14,7 +12,7 @@ use super::cubemap_upload_plan::{
 };
 use super::integrator::StepResult;
 use super::texture_task_common::{
-    failed_upload, missing_payload, resident_texture_arc, send_background_result,
+    TextureTaskGpu, failed_upload, missing_payload, resident_texture_arc, send_background_result,
     storage_orientation_allows_mark, storage_orientation_allows_upload,
 };
 
@@ -49,12 +47,10 @@ impl CubemapUploadTask {
     }
 
     /// Runs at most one integration sub-step.
-    pub fn step(
+    pub(super) fn step(
         &mut self,
         queue: &mut AssetTransferQueue,
-        device: &Arc<wgpu::Device>,
-        gpu_queue: &wgpu::Queue,
-        gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
+        gpu: TextureTaskGpu<'_>,
         shm: &mut SharedMemoryAccessor,
         ipc: &mut Option<&mut DualQueueIpc>,
     ) -> StepResult {
@@ -81,9 +77,10 @@ impl CubemapUploadTask {
         let completion = self.stepper.step(
             shm,
             CubemapUploadPlan {
-                device: device.as_ref(),
-                queue: gpu_queue,
-                gpu_queue_access_gate,
+                device: gpu.device.as_ref(),
+                queue: gpu.queue,
+                gpu_queue_access_gate: gpu.queue_access_gate,
+                queue_access_mode: gpu.queue_access_mode,
                 texture,
                 format: &self.format,
                 wgpu_format: self.wgpu_format,
@@ -109,6 +106,7 @@ impl CubemapUploadTask {
                 self.finalize_success(queue, ipc, uploaded_face_mips, storage_v_inverted);
                 StepResult::Done
             }
+            Err(e) if e.is_queue_access_busy() => StepResult::YieldBackground,
             Err(e) => {
                 failed_upload("cubemap", id, &e);
                 self.finalize_failure(ipc);
