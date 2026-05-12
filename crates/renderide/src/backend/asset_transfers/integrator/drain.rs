@@ -2,6 +2,7 @@
 
 use std::time::{Duration, Instant};
 
+use crate::gpu::GpuQueueAccessMode;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::MaterialSystem;
 use crate::profiling::{AssetIntegrationProfileSample, plot_asset_integration};
@@ -62,6 +63,7 @@ pub fn drain_asset_tasks(
     ipc: &mut Option<&mut DualQueueIpc>,
     normal_deadline: Instant,
     particle_deadline: Instant,
+    queue_access_mode: GpuQueueAccessMode,
 ) -> AssetIntegrationDrainSummary {
     profiling::scope!("asset::drain_tasks");
     let drain_start = Instant::now();
@@ -75,7 +77,9 @@ pub fn drain_asset_tasks(
     let summary = AssetIntegrationDrainSummary::start(asset);
     let high_priority_deadline = high_priority_emergency_deadline(drain_start, normal_deadline);
     let gpu_handles = collect_gpu_handles(asset);
-    let gpu_context = gpu_handles.as_ref().map(|handles| handles.as_context());
+    let gpu_context = gpu_handles
+        .as_ref()
+        .map(|handles| handles.as_context(queue_access_mode));
     let gpu = gpu_context.as_ref();
 
     let integration = run_integration_lanes(
@@ -113,7 +117,15 @@ pub fn drain_asset_tasks_unbounded(
     ipc: &mut Option<&mut DualQueueIpc>,
 ) {
     let far_future = Instant::now() + Duration::from_secs(3600);
-    let _ = drain_asset_tasks(asset, materials, shm, ipc, far_future, far_future);
+    let _ = drain_asset_tasks(
+        asset,
+        materials,
+        shm,
+        ipc,
+        far_future,
+        far_future,
+        GpuQueueAccessMode::Blocking,
+    );
 }
 
 /// Returns the emergency ceiling for high-priority tasks in a bounded drain.

@@ -8,6 +8,16 @@ pub enum TextureUploadError {
     /// Printable failure reason (layout, bounds, format mismatch).
     #[error("{0}")]
     Message(String),
+    /// The GPU queue gate was busy during a non-blocking upload attempt.
+    #[error("GPU queue access gate busy")]
+    QueueAccessBusy,
+}
+
+impl TextureUploadError {
+    /// Whether this error represents retryable queue-gate contention.
+    pub fn is_queue_access_busy(&self) -> bool {
+        matches!(self, Self::QueueAccessBusy)
+    }
 }
 
 impl From<String> for TextureUploadError {

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::assets::texture::{
     CubemapFaceMipUploadStep, CubemapMipChainUploader, MipChainAdvance, TextureUploadError,
 };
+use crate::gpu::GpuQueueAccessMode;
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{SetCubemapData, SetCubemapFormat};
 
@@ -18,6 +19,8 @@ pub(crate) struct CubemapUploadPlan<'a> {
     pub(crate) queue: &'a wgpu::Queue,
     /// Shared gate held around GPU queue access to avoid write/submit lock inversion.
     pub(crate) gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy used by texture writes in this drain.
+    pub(crate) queue_access_mode: GpuQueueAccessMode,
     /// Destination GPU cubemap texture.
     pub(crate) texture: &'a wgpu::Texture,
     /// Host-side format record for the cubemap.
@@ -134,6 +137,7 @@ impl CubemapUploadStepper {
             device: plan.device,
             queue: plan.queue,
             gpu_queue_access_gate: plan.gpu_queue_access_gate,
+            queue_access_mode: plan.queue_access_mode,
             texture: plan.texture,
             fmt: plan.format,
             wgpu_format: plan.wgpu_format,

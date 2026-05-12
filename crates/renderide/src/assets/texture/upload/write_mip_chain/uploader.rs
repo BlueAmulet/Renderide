@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::gpu::GpuQueueAccessMode;
 use crate::shared::{SetTexture2DData, SetTexture2DFormat};
 
 use super::super::super::decode::needs_rgba8_decode_before_upload;
@@ -9,7 +10,7 @@ use super::super::super::layout::{clamp_host_texture_mip_count, mip_dimensions_a
 use super::super::TextureUploadError;
 use super::super::mip_write_common::{
     MipUploadFormatCtx, MipUploadPixels, Texture2dMipWrite, choose_mip_start_bias, is_rgba8_family,
-    write_one_mip,
+    write_one_mip, write_one_mip_with_gate,
 };
 use super::super::subregion::{hint_region_is_empty, try_write_texture2d_subregion};
 use super::conversion::{downsample_rgba8_box, mip_src_to_upload_pixels};
@@ -76,6 +77,8 @@ pub struct TextureMipUploadStep<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this upload step.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination texture.
     pub texture: &'a wgpu::Texture,
     /// Host format.
@@ -202,6 +205,12 @@ impl TextureMipChainUploader {
             return Ok(None);
         };
         profiling::scope!("asset::texture2d_poll_decoded_mip");
+        if matches!(step.queue_access_mode, GpuQueueAccessMode::NonBlocking) {
+            let Some(gate) = step.gpu_queue_access_gate.try_lock() else {
+                return Ok(Some(MipChainAdvance::YieldBackground));
+            };
+            return self.poll_background_decoded_mip_with_gate(step, &gate);
+        }
         match rx.try_recv() {
             Ok(res) => {
                 self.background_rx = None;
@@ -215,6 +224,7 @@ impl TextureMipChainUploader {
                 write_one_mip(&Texture2dMipWrite {
                     queue: step.queue,
                     gpu_queue_access_gate: step.gpu_queue_access_gate,
+                    queue_access_mode: step.queue_access_mode,
                     texture: step.texture,
                     mip_level,
                     width: gw,
@@ -222,6 +232,73 @@ impl TextureMipChainUploader {
                     format: step.wgpu_format,
                     bytes: &pixels.bytes,
                 })?;
+
+                if is_rgba8_family(step.wgpu_format) {
+                    self.last_rgba8_mip = Some(Rgba8Mip {
+                        width: gw,
+                        height: gh,
+                        pixels: pixels.bytes,
+                    });
+                }
+                self.storage_v_inverted |= pixels.storage_v_inverted;
+                self.uploaded_mips += 1;
+                self.next_i += 1;
+
+                if self.start_base + self.next_i as u32 >= self.mipmap_count {
+                    self.stopped = true;
+                    return Ok(Some(MipChainAdvance::Finished {
+                        total_uploaded: self.uploaded_mips,
+                        storage_v_inverted: self.storage_v_inverted,
+                    }));
+                }
+                Ok(Some(MipChainAdvance::UploadedOne {
+                    total_uploaded: self.uploaded_mips,
+                    storage_v_inverted: self.storage_v_inverted,
+                }))
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                Ok(Some(MipChainAdvance::YieldBackground))
+            }
+            Err(crossbeam_channel::TryRecvError::Disconnected) => Err(TextureUploadError::from(
+                "Background decode thread panicked",
+            )),
+        }
+    }
+
+    fn poll_background_decoded_mip_with_gate(
+        &mut self,
+        step: &TextureMipUploadStep<'_>,
+        gate: &parking_lot::MutexGuard<'_, ()>,
+    ) -> Result<Option<MipChainAdvance>, TextureUploadError> {
+        let rx = self.background_rx.as_ref().ok_or_else(|| {
+            TextureUploadError::from(
+                "write_mip_chain: locked background poll without a decode receiver; state machine desync",
+            )
+        })?;
+        match rx.try_recv() {
+            Ok(res) => {
+                self.background_rx = None;
+                let pixels = res?;
+                let (mip_level, gw, gh) = self.pending_mip.take().ok_or_else(|| {
+                    TextureUploadError::from(
+                        "write_mip_chain: background decode completed without a pending mip slot; state machine desync",
+                    )
+                })?;
+
+                write_one_mip_with_gate(
+                    &Texture2dMipWrite {
+                        queue: step.queue,
+                        gpu_queue_access_gate: step.gpu_queue_access_gate,
+                        queue_access_mode: step.queue_access_mode,
+                        texture: step.texture,
+                        mip_level,
+                        width: gw,
+                        height: gh,
+                        format: step.wgpu_format,
+                        bytes: &pixels.bytes,
+                    },
+                    gate,
+                )?;
 
                 if is_rgba8_family(step.wgpu_format) {
                     self.last_rgba8_mip = Some(Rgba8Mip {
@@ -421,6 +498,8 @@ pub struct Texture2dUploadContext<'a> {
     /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
     /// [`crate::gpu::GpuQueueAccessGate`].
     pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
+    /// Queue-gate acquisition policy for this upload start.
+    pub queue_access_mode: GpuQueueAccessMode,
     /// Destination texture (must match `fmt` dimensions).
     pub texture: &'a wgpu::Texture,
     /// Host-side format descriptor (dimensions, mip count, texel format).
