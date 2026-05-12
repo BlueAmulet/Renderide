@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use user_dirs;
+
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -31,6 +33,7 @@ pub struct ConfigResolveOutcome {
 
 /// Canonical on-disk config file (TOML).
 pub const FILE_NAME_TOML: &str = "config.toml";
+
 const ENV_OVERRIDE: &str = "RENDERIDE_CONFIG";
 
 fn push_toml_candidate(out: &mut Vec<PathBuf>, dir: &Path) {
@@ -132,6 +135,13 @@ pub fn apply_generated_config(outcome: &mut ConfigResolveOutcome, path: PathBuf)
 fn search_candidates() -> Vec<PathBuf> {
     let mut v = Vec::new();
 
+    if let Some(dir) = user_dirs::config_dir().ok() {
+        push_toml_candidate(&mut v, dir.join("Renderide").as_path());
+        if let Some(parent) = dir.parent() {
+            push_toml_candidate(&mut v, parent);
+        }
+    }
+
     if let Some(dir) = binary_output_dir() {
         push_toml_candidate(&mut v, dir.as_path());
         if let Some(parent) = dir.parent() {
@@ -218,6 +228,12 @@ pub fn read_config_file(path: &Path) -> std::io::Result<String> {
 pub fn resolve_save_path(resolve: &ConfigResolveOutcome) -> PathBuf {
     if let Some(p) = resolve.loaded_path.clone() {
         return p;
+    }
+
+    if let Some(dir) = user_dirs::config_dir().ok()
+        && is_dir_writable(dir.as_path())
+    {
+        return dir.join("Renderide/".to_owned() + FILE_NAME_TOML);
     }
 
     if let Some(dir) = binary_output_dir()
