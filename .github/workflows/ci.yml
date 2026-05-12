@@ -78,7 +78,14 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Run headless renderer suite
-        run: cargo run --locked -p renderide-test -- check-suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            ./target/debug/renderide-test.exe check-suite
+          else
+            ./target/debug/renderide-test check-suite
+          fi
 
       - name: Upload headless suite artifacts
         if: always()
