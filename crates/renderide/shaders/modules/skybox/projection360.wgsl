@@ -71,7 +71,7 @@ fn apply_exposure(
 
 fn clamp_intensity(color: vec4<f32>, clamp_intensity: bool, max_intensity: f32) -> vec4<f32> {
     var c = color;
-    if (clamp_intensity) {
+    if (clamp_intensity && max_intensity > 0.0) {
         let m = max(c.r, max(c.g, c.b));
         if (m > max_intensity && m > 0.0) {
             c = vec4<f32>(c.rgb * (max_intensity / m), c.a);

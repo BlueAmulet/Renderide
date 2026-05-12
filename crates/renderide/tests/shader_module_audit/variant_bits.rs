@@ -110,6 +110,134 @@ fn cubemapprojection_uses_reserved_variant_bits() -> io::Result<()> {
     )
 }
 
+const PROJECTION360_KEYWORD_ORDER: [(&str, &str, u32); 18] = [
+    ("_CLAMP_INTENSITY", "P360_KW_CLAMP_INTENSITY", 0),
+    ("_NORMAL", "P360_KW_NORMAL", 1),
+    ("_OFFSET", "P360_KW_OFFSET", 2),
+    ("_PERSPECTIVE", "P360_KW_PERSPECTIVE", 3),
+    ("_RIGHT_EYE_ST", "P360_KW_RIGHT_EYE_ST", 4),
+    ("_VIEW", "P360_KW_VIEW", 5),
+    ("_WORLD_VIEW", "P360_KW_WORLD_VIEW", 6),
+    ("CUBEMAP", "P360_KW_CUBEMAP", 7),
+    ("CUBEMAP_LOD", "P360_KW_CUBEMAP_LOD", 8),
+    ("EQUIRECTANGULAR", "P360_KW_EQUIRECTANGULAR", 9),
+    ("OUTSIDE_CLAMP", "P360_KW_OUTSIDE_CLAMP", 10),
+    ("OUTSIDE_CLIP", "P360_KW_OUTSIDE_CLIP", 11),
+    ("OUTSIDE_COLOR", "P360_KW_OUTSIDE_COLOR", 12),
+    ("RECTCLIP", "P360_KW_RECTCLIP", 13),
+    ("SECOND_TEXTURE", "P360_KW_SECOND_TEXTURE", 14),
+    ("TINT_TEX_DIRECT", "P360_KW_TINT_TEX_DIRECT", 15),
+    ("TINT_TEX_LERP", "P360_KW_TINT_TEX_LERP", 16),
+    ("TINT_TEX_NONE", "P360_KW_TINT_TEX_NONE", 17),
+];
+
+fn projection360_sources() -> io::Result<[(&'static str, String); 2]> {
+    Ok([
+        (
+            "materials/projection360.wgsl",
+            material_source("projection360.wgsl")?,
+        ),
+        (
+            "passes/backend/skybox_projection360.wgsl",
+            source_file(manifest_dir().join("shaders/passes/backend/skybox_projection360.wgsl"))?,
+        ),
+    ])
+}
+
+fn decode_projection360_keywords(bits: u32) -> Vec<&'static str> {
+    PROJECTION360_KEYWORD_ORDER
+        .into_iter()
+        .filter_map(|(keyword, _, bit_index)| {
+            ((bits & (1u32 << bit_index)) != 0).then_some(keyword)
+        })
+        .collect()
+}
+
+#[test]
+fn projection360_uses_froox_sorted_variant_bits() -> io::Result<()> {
+    for (path_label, src) in projection360_sources()? {
+        for (_, constant_name, bit_index) in PROJECTION360_KEYWORD_ORDER {
+            assert!(
+                src.contains(&format!("const {constant_name}: u32 = 1u << {bit_index}u;")),
+                "{path_label}: {constant_name} must match Froox's sorted UniqueKeywords bit order",
+            );
+        }
+    }
+    assert_eq!(
+        decode_projection360_keywords(0x0002_0A02),
+        [
+            "_NORMAL",
+            "EQUIRECTANGULAR",
+            "OUTSIDE_CLIP",
+            "TINT_TEX_NONE"
+        ],
+    );
+    assert_eq!(
+        decode_projection360_keywords(0x0001_4A24),
+        [
+            "_OFFSET",
+            "_VIEW",
+            "EQUIRECTANGULAR",
+            "OUTSIDE_CLIP",
+            "SECOND_TEXTURE",
+            "TINT_TEX_LERP",
+        ],
+    );
+    Ok(())
+}
+
+#[test]
+fn projection360_reconstructs_implicit_first_keyword_defaults() -> io::Result<()> {
+    for (path_label, src) in projection360_sources()? {
+        for group_const in [
+            "P360_GROUP_VIEW",
+            "P360_GROUP_OUTSIDE",
+            "P360_GROUP_TINT_TEX",
+            "P360_GROUP_TEXTURE_MODE",
+        ] {
+            assert!(
+                src.contains(group_const),
+                "{path_label}: {group_const} must be declared so zero bits preserve Unity's implicit first keyword",
+            );
+        }
+        for (helper, group, bit) in [
+            ("kw_VIEW", "P360_GROUP_VIEW", "P360_KW_VIEW"),
+            (
+                "kw_OUTSIDE_CLIP",
+                "P360_GROUP_OUTSIDE",
+                "P360_KW_OUTSIDE_CLIP",
+            ),
+            (
+                "kw_TINT_TEX_NONE",
+                "P360_GROUP_TINT_TEX",
+                "P360_KW_TINT_TEX_NONE",
+            ),
+            (
+                "kw_EQUIRECTANGULAR",
+                "P360_GROUP_TEXTURE_MODE",
+                "P360_KW_EQUIRECTANGULAR",
+            ),
+        ] {
+            let expected = format!("proj360_group_default({group}, {bit})");
+            assert!(
+                src.contains(&format!("fn {helper}()")) && src.contains(&expected),
+                "{path_label}: {helper}() must route through {expected}",
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn projection360_clamp_intensity_guards_zero_max() -> io::Result<()> {
+    let src = source_file(manifest_dir().join("shaders/modules/skybox/projection360.wgsl"))?;
+    assert!(
+        src.contains("if (clamp_intensity && max_intensity > 0.0) {"),
+        "Projection360 clamp_intensity must not zero colors when _MaxIntensity is missing or zero",
+    );
+    Ok(())
+}
+
 #[test]
 fn depthprojection_uses_reserved_variant_bits() -> io::Result<()> {
     assert_variant_bits_shader(
