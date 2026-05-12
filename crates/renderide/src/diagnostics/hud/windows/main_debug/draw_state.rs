@@ -25,79 +25,98 @@ impl TabView for DrawStateTab {
             ui.text("Waiting for frame diagnostics");
             return;
         };
-        ui.checkbox("Only UI / alpha rows", &mut state.draw_state_ui_only);
-        ui.checkbox(
-            "Only render-state overrides",
-            &mut state.draw_state_only_overrides,
-        );
 
-        let rows: Vec<&WorldMeshDrawStateRow> = d
-            .mesh_draw
-            .draw_state_rows
-            .iter()
-            .filter(|row| !state.draw_state_ui_only || draw_state_is_uiish(row))
-            .filter(|row| !state.draw_state_only_overrides || draw_state_has_override(row))
-            .collect();
-        ui.text(format!(
-            "{} rows ({} submitted)",
-            rows.len(),
-            d.mesh_draw.draw_state_rows.len()
-        ));
+        draw_filters(ui, state);
+        let rows = filtered_draw_state_rows(d, state);
+        draw_state_summary(ui, rows.len(), d.mesh_draw.draw_state_rows.len());
+        draw_rows_table(ui, &rows);
+    }
+}
 
-        if let Some(_table) = ui.begin_table_with_sizing(
-            "draw_state_rows",
-            11,
-            scrolling_table_flags(),
-            [0.0, 360.0],
-            0.0,
-        ) {
-            ui.table_setup_column("Draw");
-            ui.table_setup_column("Node");
-            ui.table_setup_column("Mesh");
-            ui.table_setup_column("Material");
-            ui.table_setup_column("Pipeline");
-            ui.table_setup_column("Blend");
-            ui.table_setup_column("ZWrite");
-            ui.table_setup_column("ZTest");
-            ui.table_setup_column("Offset");
-            ui.table_setup_column("Color");
-            ui.table_setup_column("Stencil");
-            ui.table_headers_row();
-            let clip = ListClipper::new(rows.len() as i32);
-            let tok = clip.begin(ui);
-            for row_i in tok.iter() {
-                let row = rows[row_i as usize];
-                ui.table_next_row();
-                ui.table_next_column();
-                ui.text(format!("{}", row.draw_index));
-                ui.table_next_column();
-                ui.text(format!("{}", row.node_id));
-                ui.table_next_column();
-                ui.text(format!("{}:{}", row.mesh_asset_id, row.slot_index));
-                ui.table_next_column();
-                ui.text(format!(
-                    "{} / {:?}",
-                    row.material_asset_id, row.property_block_slot0
-                ));
-                ui.table_next_column();
-                ui.text_wrapped(pipeline_label(&row.pipeline));
-                ui.table_next_column();
-                ui.text(blend_mode_label(row.blend_mode));
-                ui.table_next_column();
-                ui.text(match row.depth_write {
-                    Some(true) => "on",
-                    Some(false) => "off",
-                    None => "pass",
-                });
-                ui.table_next_column();
-                ui.text(ztest_label(row.depth_compare));
-                ui.table_next_column();
-                ui.text(offset_label(row.depth_offset));
-                ui.table_next_column();
-                ui.text(color_mask_label(row.color_mask));
-                ui.table_next_column();
-                ui.text_wrapped(stencil_label(row));
-            }
+fn draw_filters(ui: &imgui::Ui, state: &mut HudUiState) {
+    ui.checkbox("Only UI / alpha rows", &mut state.draw_state_ui_only);
+    ui.checkbox(
+        "Only render-state overrides",
+        &mut state.draw_state_only_overrides,
+    );
+}
+
+fn filtered_draw_state_rows<'a>(
+    diagnostics: &'a FrameDiagnosticsSnapshot,
+    state: &HudUiState,
+) -> Vec<&'a WorldMeshDrawStateRow> {
+    diagnostics
+        .mesh_draw
+        .draw_state_rows
+        .iter()
+        .filter(|row| !state.draw_state_ui_only || draw_state_is_uiish(row))
+        .filter(|row| !state.draw_state_only_overrides || draw_state_has_override(row))
+        .collect()
+}
+
+fn draw_state_summary(ui: &imgui::Ui, shown: usize, submitted: usize) {
+    ui.text(format!("{shown} rows ({submitted} submitted)"));
+}
+
+fn draw_rows_table(ui: &imgui::Ui, rows: &[&WorldMeshDrawStateRow]) {
+    if let Some(_table) = ui.begin_table_with_sizing(
+        "draw_state_rows",
+        11,
+        scrolling_table_flags(),
+        [0.0, 360.0],
+        0.0,
+    ) {
+        ui.table_setup_column("Draw");
+        ui.table_setup_column("Node");
+        ui.table_setup_column("Mesh");
+        ui.table_setup_column("Material");
+        ui.table_setup_column("Pipeline");
+        ui.table_setup_column("Blend");
+        ui.table_setup_column("ZWrite");
+        ui.table_setup_column("ZTest");
+        ui.table_setup_column("Offset");
+        ui.table_setup_column("Color");
+        ui.table_setup_column("Stencil");
+        ui.table_headers_row();
+
+        let clip = ListClipper::new(rows.len() as i32);
+        let tok = clip.begin(ui);
+        for row_i in tok.iter() {
+            draw_row(ui, rows[row_i as usize]);
         }
     }
+}
+
+fn draw_row(ui: &imgui::Ui, row: &WorldMeshDrawStateRow) {
+    ui.table_next_row();
+    ui.table_next_column();
+    ui.text(row.draw_index.to_string());
+    ui.table_next_column();
+    ui.text(row.node_id.to_string());
+    ui.table_next_column();
+    let mesh_asset_id = row.mesh_asset_id;
+    let slot_index = row.slot_index;
+    ui.text(format!("{mesh_asset_id}:{slot_index}"));
+    ui.table_next_column();
+    let material_asset_id = row.material_asset_id;
+    let property_block_slot0 = row.property_block_slot0;
+    ui.text(format!("{material_asset_id} / {property_block_slot0:?}"));
+    ui.table_next_column();
+    ui.text_wrapped(pipeline_label(&row.pipeline));
+    ui.table_next_column();
+    ui.text(blend_mode_label(row.blend_mode));
+    ui.table_next_column();
+    ui.text(match row.depth_write {
+        Some(true) => "on",
+        Some(false) => "off",
+        None => "pass",
+    });
+    ui.table_next_column();
+    ui.text(ztest_label(row.depth_compare));
+    ui.table_next_column();
+    ui.text(offset_label(row.depth_offset));
+    ui.table_next_column();
+    ui.text(color_mask_label(row.color_mask));
+    ui.table_next_column();
+    ui.text_wrapped(stencil_label(row));
 }

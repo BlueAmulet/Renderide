@@ -65,9 +65,11 @@ impl TabView for StatsTab {
 impl StatsSection for FrameLineSection {
     fn render(&self, ui: &imgui::Ui, ctx: &StatsContext<'_>) {
         if let Some(r) = ctx.renderer {
+            let frame_index = r.last_frame_index;
+            let viewport_width = r.viewport_px.0;
+            let viewport_height = r.viewport_px.1;
             ui.text(format!(
-                "Frame index {}  |  viewport {}x{}",
-                r.last_frame_index, r.viewport_px.0, r.viewport_px.1
+                "Frame index {frame_index}  |  viewport {viewport_width}x{viewport_height}"
             ));
         } else if ctx.frame.is_some() {
             ui.text_disabled("Frame index / viewport: (need renderer snapshot)");
@@ -131,11 +133,11 @@ impl StatsSection for HostAndAllocatorSection {
             f.gpu_allocator.totals.allocated_bytes,
             f.gpu_allocator.totals.reserved_bytes,
         ) {
-            (Some(alloc), Some(resv)) => ui.text(format!(
-                "{} / {} GiB allocated / reserved",
-                hud_fmt::gib_value(7, 2, alloc),
-                hud_fmt::gib_value(7, 2, resv)
-            )),
+            (Some(alloc), Some(resv)) => {
+                let allocated = hud_fmt::gib_value(7, 2, alloc);
+                let reserved = hud_fmt::gib_value(7, 2, resv);
+                ui.text(format!("{allocated} / {reserved} GiB allocated / reserved"));
+            }
             _ => ui.text("not reported for this backend"),
         }
 
@@ -156,11 +158,11 @@ impl StatsSection for HostAndAllocatorSection {
         } else {
             0.0
         };
+        let ram_used = hud_fmt::gib_value(7, 2, f.host.ram_used_bytes);
+        let ram_total = hud_fmt::gib_value(7, 2, f.host.ram_total_bytes);
+        let ram_percent = hud_fmt::f64_field(5, 1, ram_pct);
         ui.text(format!(
-            "RAM: {} / {} GiB  ({}%)",
-            hud_fmt::gib_value(7, 2, f.host.ram_used_bytes),
-            hud_fmt::gib_value(7, 2, f.host.ram_total_bytes),
-            hud_fmt::f64_field(5, 1, ram_pct)
+            "RAM: {ram_used} / {ram_total} GiB  ({ram_percent}%)"
         ));
     }
 }
@@ -218,8 +220,8 @@ impl StatsSection for DrawStatsSection {
             0.0
         };
         ui.text(format!(
-            "GPU instances emitted: {:>5}  |  avg instances/batch: {:>5.2}",
-            m.gpu_instances_emitted, compression
+            "GPU instances emitted: {:>5}  |  avg instances/batch: {compression:>5.2}",
+            m.gpu_instances_emitted
         ));
         ui.text(format!(
             "Pipeline pass submits: {:>5}",
