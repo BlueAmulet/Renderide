@@ -68,6 +68,13 @@ pub(super) mod torus_geometry {
     pub(in crate::host::scene_session) const MINOR_RADIUS: f32 = 0.25;
 }
 
+/// Shader variant bitmasks used by cases that upload embedded shaders through the test stem
+/// prefix.
+pub(super) mod shader_variants {
+    /// Unlit shader variant enabling `_TEXTURE` (`UNLIT_KW_TEXTURE = 1 << 9` in WGSL).
+    pub(in crate::host::scene_session) const UNLIT_TEXTURE: u32 = 0x0000_0200;
+}
+
 /// Wall-clock timing parameters governing PNG readback, lockstep pumping, and shutdown.
 pub(super) mod timing {
     use std::time::Duration;
