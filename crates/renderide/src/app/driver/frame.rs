@@ -44,6 +44,16 @@ pub(super) struct RenderViewsOutcome {
     pub(super) hmd_projection_ended: bool,
 }
 
+fn runtime_exit_reason(shutdown_requested: bool, fatal_error: bool) -> Option<ExitReason> {
+    if shutdown_requested {
+        Some(ExitReason::HostShutdown)
+    } else if fatal_error {
+        Some(ExitReason::FatalIpc)
+    } else {
+        None
+    }
+}
+
 impl AppDriver {
     /// One winit redraw tick.
     pub(super) fn tick_frame(&mut self, event_loop: &dyn ActiveEventLoop) {
@@ -66,6 +76,9 @@ impl AppDriver {
         if self.check_external_shutdown(event_loop) {
             return FrameTickOutcome::ExitRequested;
         }
+        if self.handle_runtime_exit_requests(event_loop) {
+            return FrameTickOutcome::ExitRequested;
+        }
         self.runtime.update_decoupling_activation(Instant::now());
         {
             profiling::scope!("tick::asset_integration");
@@ -86,7 +99,7 @@ impl AppDriver {
         drop(xr_pause);
 
         self.lock_step_exchange();
-        if self.handle_frame_exit_requests(event_loop) {
+        if self.handle_openxr_exit_request(event_loop) {
             self.queue_empty_openxr_frame_if_needed(xr_tick);
             self.poll_graceful_shutdown(event_loop);
             return FrameTickOutcome::ExitRequested;
@@ -195,28 +208,38 @@ impl AppDriver {
         }
     }
 
-    fn handle_frame_exit_requests(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
+    fn handle_runtime_exit_requests(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
+        let Some(reason) = runtime_exit_reason(
+            self.runtime.shutdown_requested(),
+            self.runtime.fatal_error(),
+        ) else {
+            return false;
+        };
+
+        match reason {
+            ExitReason::HostShutdown => {
+                logger::info!("Renderer shutdown requested by host");
+                self.runtime
+                    .log_compact_renderer_summary("host-shutdown-requested");
+            }
+            ExitReason::FatalIpc => {
+                logger::error!("Renderer fatal IPC error");
+                self.runtime.log_compact_renderer_summary("fatal-ipc");
+            }
+            _ => {}
+        }
+
+        self.request_exit(reason, event_loop);
+        true
+    }
+
+    fn handle_openxr_exit_request(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
         if let Some(target) = self.target.as_ref()
             && let Some(session) = target.xr_session()
             && session.handles.xr_session.exit_requested()
         {
             logger::info!("OpenXR requested exit");
             self.request_exit(ExitReason::OpenxrExit, event_loop);
-            return true;
-        }
-
-        if self.runtime.shutdown_requested() {
-            logger::info!("Renderer shutdown requested by host");
-            self.runtime
-                .log_compact_renderer_summary("host-shutdown-requested");
-            self.request_exit(ExitReason::HostShutdown, event_loop);
-            return true;
-        }
-
-        if self.runtime.fatal_error() {
-            logger::error!("Renderer fatal IPC error");
-            self.runtime.log_compact_renderer_summary("fatal-ipc");
-            self.request_exit(ExitReason::FatalIpc, event_loop);
             return true;
         }
 
@@ -363,7 +386,8 @@ impl AppDriver {
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameRenderMode, RenderViewsOutcome};
+    use super::{FrameRenderMode, RenderViewsOutcome, runtime_exit_reason};
+    use crate::app::exit::ExitReason;
 
     #[test]
     fn render_views_outcome_records_hmd_projection() {
@@ -373,5 +397,23 @@ mod tests {
         };
         assert!(outcome.hmd_projection_ended);
         assert_eq!(outcome.mode, FrameRenderMode::HmdMultiview);
+    }
+
+    #[test]
+    fn runtime_exit_reason_prefers_host_shutdown_over_fatal_ipc() {
+        assert_eq!(
+            runtime_exit_reason(true, true),
+            Some(ExitReason::HostShutdown)
+        );
+    }
+
+    #[test]
+    fn runtime_exit_reason_maps_fatal_ipc_when_shutdown_is_absent() {
+        assert_eq!(runtime_exit_reason(false, true), Some(ExitReason::FatalIpc));
+    }
+
+    #[test]
+    fn runtime_exit_reason_ignores_running_runtime() {
+        assert_eq!(runtime_exit_reason(false, false), None);
     }
 }

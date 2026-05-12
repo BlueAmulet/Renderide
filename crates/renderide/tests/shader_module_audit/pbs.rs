@@ -2,21 +2,6 @@
 
 use super::*;
 
-fn pass_directives(src: &str) -> Vec<&str> {
-    src.lines()
-        .filter_map(|line| {
-            line.trim_start()
-                .strip_prefix("//#pass ")
-                .map(|rest| rest.split_whitespace().next().unwrap_or(rest))
-        })
-        .collect()
-}
-
-fn assert_keyword_bit(src: &str, file_name: &str, constant_name: &str, bit_index: u32) {
-    let needle = format!("const {constant_name}: u32 = 1u << {bit_index}u;");
-    assert!(src.contains(&needle), "{file_name} must define `{needle}`");
-}
-
 #[test]
 fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
     let birp = module_source("lighting/birp.wgsl")?;
