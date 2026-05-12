@@ -205,14 +205,19 @@ fn xiexe_direct_diffuse_uses_filament_lambert_with_ramp_tint() -> io::Result<()>
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
     assert!(
-        lighting_src.contains(
-            "direct_diffuse = direct_diffuse + s.albedo.rgb * brdf::fd_lambert() * light.color * ramp;"
-        ),
-        "Per-light direct diffuse must route through Filament Lambert (`fd_lambert`) with the toon ramp as a 3-channel multiplier; saw:\n{lighting_src}"
+        lighting_src
+            .contains("s.albedo.rgb * brdf::fd_lambert() * light.color * light.attenuation * ramp"),
+        "Per-light direct diffuse must route through Filament Lambert × Renderide's π-boosted attenuation × toon ramp; saw:\n{lighting_src}"
     );
     assert!(
         !lighting_src.contains("s.albedo.rgb * ramp * light_col_atten"),
         "The legacy un-normalized direct-diffuse accumulator must be removed"
+    );
+    // Guard the regression: missing `light.attenuation` makes diffuse π× dimmer than
+    // PBSMetallic and washes out the toon shadow ramp.
+    assert!(
+        !lighting_src.contains("s.albedo.rgb * brdf::fd_lambert() * light.color * ramp"),
+        "Direct diffuse must include `light.attenuation` so Renderide's `INTENSITY_BOOST = π` cancels `fd_lambert()`'s `1/π`"
     );
     Ok(())
 }

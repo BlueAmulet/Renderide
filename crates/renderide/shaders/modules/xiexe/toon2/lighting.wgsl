@@ -438,12 +438,18 @@ fn clustered_toon_lighting(
         let ndl = dot(s.normal, light.direction);
         let ramp = ramp_for_ndl(ndl, light.attenuation, s.ramp_mask);
         let light_col_atten = light.color * light.attenuation;
-        // Filament Lambert (`1/π`) with the toon ramp as a 3-channel multiplier
-        // replacing `NdotL * att`. At ramp ≈ 1 (full lit) this equals PBSMetallic's
-        // direct diffuse `albedo * fd_lambert() * lightCol * NdotL * att`; in shadow
-        // regions the ramp drives the stylized falloff curve and any author-painted
-        // tint. `s.albedo` is already metallic-discounted in `surface::sample_surface`.
-        direct_diffuse = direct_diffuse + s.albedo.rgb * brdf::fd_lambert() * light.color * ramp;
+        // Filament Lambert (`1/π`) × Renderide's π-boosted `light.attenuation` ×
+        // toon ramp. `bl::direct_light_intensity` / `bl::punctual_attenuation` both
+        // bake `INTENSITY_BOOST = π` into `light.attenuation`
+        // (`modules/lighting/birp.wgsl:11`), which cancels `fd_lambert()`'s `1/π`
+        // so the energy magnitude matches PBSMetallic's
+        // `fd_lambert() * lightCol * att * NdL` exactly at white ramp. The toon ramp
+        // is the 3-channel stylized replacement for `NdL` and bakes a Unity-style
+        // attenuation into its `U` axis to compress the curve for distant punctual
+        // lights (`XSLightingFunctions.cginc:325-343`). `s.albedo` is already
+        // metallic-discounted in `surface::sample_surface`.
+        direct_diffuse = direct_diffuse
+            + s.albedo.rgb * brdf::fd_lambert() * light.color * light.attenuation * ramp;
         direct_spec = direct_spec + direct_specular(s, light, view_dir, primary_specular_terms);
         sss = sss + subsurface(s, light, view_dir, ambient);
 
