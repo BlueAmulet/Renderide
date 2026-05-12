@@ -5,8 +5,8 @@
 //! [`unity_asset::environment::Environment::bundle_container_entries`]: `AssetBundle.m_Container`
 //! asset paths matched to embedded Shader objects, then stemmed (e.g. `.../ui_unlit.shader` -> `ui_unlit`).
 //!
-//! Serialized shader objects are also read for the internal Shader name so Froox variant suffixes
-//! (`{shader_name}_{variant_bits:08X}`) can be stripped and carried as metadata.
+//! Serialized shader objects are also read for the top-level ShaderLab name so Froox variant
+//! suffixes (`{shader_name}_{variant_bits:08X}`) can be stripped and carried as metadata.
 
 use std::fmt::Display;
 use std::path::Path;
@@ -45,6 +45,23 @@ struct InternalShaderName {
     full_name: String,
     shader_asset_name: String,
     shader_variant_bits: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InternalShaderNameSource {
+    TypeTreeShaderLab,
+    RawShaderLab,
+    ParsedFormName,
+}
+
+impl InternalShaderNameSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::TypeTreeShaderLab => "typetree_shaderlab",
+            Self::RawShaderLab => "raw_shaderlab",
+            Self::ParsedFormName => "typetree_m_ParsedForm",
+        }
+    }
 }
 
 /// Shader asset filename or stem plus optional Froox variant bitmask from a filesystem path.
@@ -163,12 +180,17 @@ fn log_container_resolution(path_id: i64, name: &str, container_asset_path: &str
     );
 }
 
-fn log_internal_name_resolution(path_id: i64, class_id: i32, name: &InternalShaderName) {
+fn log_internal_name_resolution(
+    path_id: i64,
+    class_id: i32,
+    source: InternalShaderNameSource,
+    name: &InternalShaderName,
+) {
     logger::info!(
         "shader_unity_asset: Shader path_id={} class_id={} source={} full_name={:?} stem={:?} variant_bits={:?}",
         path_id,
         class_id,
-        "typetree_m_ParsedForm",
+        source.as_str(),
         name.full_name,
         name.shader_asset_name,
         name.shader_variant_bits
@@ -356,6 +378,13 @@ fn shader_resolution_from_bundle(
 ) -> Option<ResolvedUnityShaderAsset> {
     let container_name = shader_name_from_bundle_container(bundle_path, bundle);
     let internal_name = shader_internal_name_from_bundle(bundle);
+    shader_resolution_from_parts(container_name, internal_name)
+}
+
+fn shader_resolution_from_parts(
+    container_name: Option<String>,
+    internal_name: Option<InternalShaderName>,
+) -> Option<ResolvedUnityShaderAsset> {
     let shader_asset_name = container_name.or_else(|| {
         internal_name
             .as_ref()
@@ -383,18 +412,27 @@ fn shader_internal_name_from_serialized_file(sf: &SerializedFile) -> Option<Inte
         }
         let path_id = handle.path_id();
         let class_id = handle.class_id();
+        let mut parsed_form_name = None;
+        let mut keys_sample = Vec::new();
 
         match handle.read() {
             Ok(obj) => {
-                if let Some(parsed) = shader_internal_name_from_loaded_unity_object(&obj) {
-                    log_internal_name_resolution(path_id, class_id, &parsed);
+                if let Some(parsed) = shader_lab_internal_name_from_loaded_unity_object(&obj) {
+                    log_internal_name_resolution(
+                        path_id,
+                        class_id,
+                        InternalShaderNameSource::TypeTreeShaderLab,
+                        &parsed,
+                    );
                     return Some(parsed);
                 }
-                logger::debug!(
-                    "shader_unity_asset: Shader path_id={} typetree ok; no m_ParsedForm.m_Name; keys_sample={:?}",
-                    path_id,
-                    obj.property_names().iter().take(24).collect::<Vec<_>>()
-                );
+                parsed_form_name = shader_internal_name_from_loaded_unity_object(&obj);
+                keys_sample = obj
+                    .property_names()
+                    .iter()
+                    .take(24)
+                    .map(|key| (*key).clone())
+                    .collect::<Vec<_>>();
             }
             Err(e) => {
                 logger::debug!(
@@ -404,8 +442,68 @@ fn shader_internal_name_from_serialized_file(sf: &SerializedFile) -> Option<Inte
                 );
             }
         }
+
+        match handle.raw_data() {
+            Ok(raw) => {
+                if let Some(parsed) = shader_lab_internal_name_from_bytes(raw) {
+                    log_internal_name_resolution(
+                        path_id,
+                        class_id,
+                        InternalShaderNameSource::RawShaderLab,
+                        &parsed,
+                    );
+                    return Some(parsed);
+                }
+            }
+            Err(e) => {
+                logger::debug!(
+                    "shader_unity_asset: Shader path_id={} ObjectHandle::raw_data failed: {}",
+                    path_id,
+                    e
+                );
+            }
+        }
+
+        if let Some(parsed) = parsed_form_name {
+            log_internal_name_resolution(
+                path_id,
+                class_id,
+                InternalShaderNameSource::ParsedFormName,
+                &parsed,
+            );
+            return Some(parsed);
+        }
+
+        logger::debug!(
+            "shader_unity_asset: Shader path_id={} typetree ok; no ShaderLab declaration or m_ParsedForm.m_Name; keys_sample={:?}",
+            path_id,
+            keys_sample
+        );
     }
     None
+}
+
+fn shader_lab_internal_name_from_loaded_unity_object(
+    obj: &unity_asset_binary::object::UnityObject,
+) -> Option<InternalShaderName> {
+    for key in [
+        "m_ParsedForm",
+        "m_Script",
+        "m_SerializedShader",
+        "m_SubProgramBlob",
+    ] {
+        if let Some(parsed) = obj
+            .get(key)
+            .and_then(shader_lab_internal_name_from_unity_value)
+        {
+            return Some(parsed);
+        }
+    }
+
+    obj.property_names().into_iter().find_map(|key| {
+        obj.get(key)
+            .and_then(shader_lab_internal_name_from_unity_value)
+    })
 }
 
 fn shader_internal_name_from_loaded_unity_object(
@@ -426,6 +524,163 @@ fn parsed_form_internal_shader_name(value: &UnityValue) -> Option<InternalShader
             .filter(|name| !name.trim().is_empty())
             .and_then(parse_internal_shader_name)
     })
+}
+
+fn shader_lab_internal_name_from_unity_value(value: &UnityValue) -> Option<InternalShaderName> {
+    match value {
+        UnityValue::String(text) => parse_shader_lab_internal_name(text),
+        UnityValue::Bytes(bytes) => shader_lab_internal_name_from_bytes(bytes),
+        UnityValue::Array(values) => values
+            .iter()
+            .find_map(shader_lab_internal_name_from_unity_value),
+        UnityValue::Object(fields) => fields
+            .values()
+            .find_map(shader_lab_internal_name_from_unity_value),
+        UnityValue::Null | UnityValue::Bool(_) | UnityValue::Integer(_) | UnityValue::Float(_) => {
+            None
+        }
+    }
+}
+
+fn shader_lab_internal_name_from_bytes(bytes: &[u8]) -> Option<InternalShaderName> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(bytes);
+    parse_shader_lab_internal_name(text.as_ref())
+}
+
+fn parse_shader_lab_internal_name(text: &str) -> Option<InternalShaderName> {
+    shader_lab_declared_name(text).and_then(|name| parse_internal_shader_name(&name))
+}
+
+fn shader_lab_declared_name(text: &str) -> Option<String> {
+    const SHADER_KEYWORD: &[u8] = b"Shader";
+
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index = skip_shader_lab_line_comment(bytes, index);
+                continue;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = skip_shader_lab_block_comment(bytes, index);
+                continue;
+            }
+            b'"' => {
+                index = skip_shader_lab_string_literal(bytes, index);
+                continue;
+            }
+            b'S' if bytes[index..].starts_with(SHADER_KEYWORD) => {
+                let after_keyword = index + SHADER_KEYWORD.len();
+                let previous_is_boundary = index == 0
+                    || !bytes
+                        .get(index - 1)
+                        .is_some_and(|byte| shader_lab_identifier_byte(*byte));
+                let next_is_whitespace = bytes
+                    .get(after_keyword)
+                    .is_some_and(u8::is_ascii_whitespace);
+                if previous_is_boundary && next_is_whitespace {
+                    let quote_index = skip_shader_lab_whitespace(bytes, after_keyword);
+                    if bytes.get(quote_index) == Some(&b'"')
+                        && let Some(name) = shader_lab_quoted_string(text, quote_index)
+                        && !name.trim().is_empty()
+                    {
+                        return Some(name);
+                    }
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn shader_lab_identifier_byte(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphanumeric()
+}
+
+fn skip_shader_lab_whitespace(bytes: &[u8], mut index: usize) -> usize {
+    while bytes.get(index).is_some_and(u8::is_ascii_whitespace) {
+        index += 1;
+    }
+    index
+}
+
+fn skip_shader_lab_line_comment(bytes: &[u8], mut index: usize) -> usize {
+    index += 2;
+    while index < bytes.len() && bytes[index] != b'\n' {
+        index += 1;
+    }
+    index
+}
+
+fn skip_shader_lab_block_comment(bytes: &[u8], mut index: usize) -> usize {
+    index += 2;
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'*' && bytes[index + 1] == b'/' {
+            return index + 2;
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+fn skip_shader_lab_string_literal(bytes: &[u8], mut index: usize) -> usize {
+    index += 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = (index + 2).min(bytes.len()),
+            b'"' => return index + 1,
+            _ => index += 1,
+        }
+    }
+    index
+}
+
+fn shader_lab_quoted_string(text: &str, quote_index: usize) -> Option<String> {
+    let content_start = quote_index + 1;
+    let mut escaped = false;
+    for (offset, ch) in text[content_start..].char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '"' => {
+                let content_end = content_start + offset;
+                return Some(unescape_shader_lab_quoted_name(
+                    &text[content_start..content_end],
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn unescape_shader_lab_quoted_name(name: &str) -> String {
+    let mut unescaped = String::with_capacity(name.len());
+    let mut chars = name.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            unescaped.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some(next @ ('"' | '\\')) => unescaped.push(next),
+            Some(next) => {
+                unescaped.push(ch);
+                unescaped.push(next);
+            }
+            None => unescaped.push(ch),
+        }
+    }
+    unescaped
 }
 
 fn parse_internal_shader_name(name: &str) -> Option<InternalShaderName> {
@@ -627,6 +882,125 @@ mod tests {
                 full_name: "Unlit_nothex123".to_string(),
                 shader_asset_name: "Unlit_nothex123".to_string(),
                 shader_variant_bits: None,
+            })
+        );
+    }
+
+    #[test]
+    fn shader_lab_name_parser_uses_top_level_shader_before_fallback() {
+        let source = r#"
+            Shader "PBSLerp" {
+                Properties {}
+                FallBack "Transparent/Cutout/VertexLit"
+            }
+        "#;
+
+        assert_eq!(
+            parse_shader_lab_internal_name(source),
+            Some(InternalShaderName {
+                full_name: "PBSLerp".to_string(),
+                shader_asset_name: "PBSLerp".to_string(),
+                shader_variant_bits: None,
+            })
+        );
+    }
+
+    #[test]
+    fn shader_lab_name_parser_preserves_variant_suffix() {
+        let source = r#"
+            Shader "PBSLerpSpecular_000000B1" {
+                FallBack "Transparent/Cutout/VertexLit"
+            }
+        "#;
+
+        assert_eq!(
+            parse_shader_lab_internal_name(source),
+            Some(InternalShaderName {
+                full_name: "PBSLerpSpecular_000000B1".to_string(),
+                shader_asset_name: "PBSLerpSpecular".to_string(),
+                shader_variant_bits: Some(0xB1),
+            })
+        );
+    }
+
+    #[test]
+    fn shader_lab_name_parser_ignores_comments_strings_and_fallback_only_text() {
+        assert_eq!(
+            parse_shader_lab_internal_name(r#"FallBack "Transparent/Cutout/VertexLit""#),
+            None
+        );
+
+        let source = r#"
+            // Shader "CommentedOut"
+            CustomEditor "ShaderGUI"
+            /* Shader "AlsoCommentedOut" */
+            Shader "PBSLerpMetallic_000000B1" {}
+        "#;
+
+        assert_eq!(
+            parse_shader_lab_internal_name(source),
+            Some(InternalShaderName {
+                full_name: "PBSLerpMetallic_000000B1".to_string(),
+                shader_asset_name: "PBSLerpMetallic".to_string(),
+                shader_variant_bits: Some(0xB1),
+            })
+        );
+    }
+
+    #[test]
+    fn shader_lab_value_parser_prefers_declaration_over_parsed_form_name() {
+        let parsed_form = UnityValue::Object(
+            [
+                (
+                    "m_Name".to_string(),
+                    UnityValue::String("Legacy Shaders/Transparent/Cutout/VertexLit".to_string()),
+                ),
+                (
+                    "m_SerializedShader".to_string(),
+                    UnityValue::String(
+                        r#"Shader "PBSLerpSpecular_000000B1" {
+                            FallBack "Transparent/Cutout/VertexLit"
+                        }"#
+                        .to_string(),
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        assert_eq!(
+            shader_lab_internal_name_from_unity_value(&parsed_form),
+            Some(InternalShaderName {
+                full_name: "PBSLerpSpecular_000000B1".to_string(),
+                shader_asset_name: "PBSLerpSpecular".to_string(),
+                shader_variant_bits: Some(0xB1),
+            })
+        );
+        assert_eq!(
+            parsed_form_internal_shader_name(&parsed_form),
+            Some(InternalShaderName {
+                full_name: "Legacy Shaders/Transparent/Cutout/VertexLit".to_string(),
+                shader_asset_name: "VertexLit".to_string(),
+                shader_variant_bits: None,
+            })
+        );
+    }
+
+    #[test]
+    fn resolution_uses_container_name_and_shader_lab_variant_bits() {
+        assert_eq!(
+            shader_resolution_from_parts(
+                Some("pbslerpspecular".to_string()),
+                Some(InternalShaderName {
+                    full_name: "PBSLerpSpecular_000000B1".to_string(),
+                    shader_asset_name: "PBSLerpSpecular".to_string(),
+                    shader_variant_bits: Some(0xB1),
+                }),
+            ),
+            Some(ResolvedUnityShaderAsset {
+                shader_asset_name: "pbslerpspecular".to_string(),
+                shader_variant_bits: Some(0xB1),
             })
         );
     }
