@@ -79,18 +79,13 @@ fn shade(
     view_layer: u32,
 ) -> vec4<f32> {
     let c = textureSample(_Albedo, _Albedo_sampler, uv) * mat._Color;
-    // _Albedo1..3 are sampled to keep the bindings live (the Unity source declares them but only
-    // multiplies into the final emission by way of host-driven uniforms; we conservatively touch).
-    let touch = (textureSample(_Albedo1, _Albedo1_sampler, uv).r
-        + textureSample(_Albedo2, _Albedo2_sampler, uv).r
-        + textureSample(_Albedo3, _Albedo3_sampler, uv).r) * 0.0;
 
     let m = textureSample(_MetallicMap, _Albedo_sampler, uv);
     let e0 = textureSample(_EmissionMap, _EmissionMap_sampler, uv).rgb;
     let e1 = textureSample(_EmissionMap1, _EmissionMap1_sampler, uv).rgb;
     let emission = mix(e0, e1, 0.5);
 
-    let base_color = c.rgb + vec3<f32>(touch);
+    let base_color = c.rgb;
     let metallic = clamp(m.r, 0.0, 1.0);
     let smoothness = clamp(m.a, 0.0, 1.0);
     let roughness = psamp::roughness_from_smoothness(smoothness);

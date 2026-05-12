@@ -34,6 +34,7 @@ const PBSRIMTRANSPARENTZWRITE_KW_EMISSIONTEX: u32 = 1u << 1u;
 const PBSRIMTRANSPARENTZWRITE_KW_METALLICMAP: u32 = 1u << 2u;
 const PBSRIMTRANSPARENTZWRITE_KW_NORMALMAP: u32 = 1u << 3u;
 const PBSRIMTRANSPARENTZWRITE_KW_OCCLUSION: u32 = 1u << 4u;
+const PBSRIMTRANSPARENTZWRITE_KW_ZWRITE: u32 = 1u << 5u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsRimTransparentZWriteMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;

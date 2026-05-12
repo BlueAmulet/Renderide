@@ -11,8 +11,6 @@
 struct FiltersLutMaterial {
     _Rect: vec4<f32>,
     _Lerp: f32,
-    _LUT_LodBias: f32,
-    _SecondaryLUT_LodBias: f32,
     _RenderideVariantBits: u32,
 }
 
@@ -73,10 +71,10 @@ fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
     if (kw_SRGB()) {
         normalized = pow(normalized, vec3<f32>(1.0 / 2.2));
     }
-    let coords = clamp(normalized, vec3<f32>(0.0), vec3<f32>(1.0));
-    var filtered = ts::sample_tex_3d(_LUT, _LUT_sampler, coords, mat._LUT_LodBias).rgb;
+    let coords = normalized;
+    var filtered = ts::sample_tex_3d_level(_LUT, _LUT_sampler, coords, 0.0).rgb;
     if (kw_LERP()) {
-        let secondary = ts::sample_tex_3d(_SecondaryLUT, _SecondaryLUT_sampler, coords, mat._SecondaryLUT_LodBias).rgb;
+        let secondary = ts::sample_tex_3d_level(_SecondaryLUT, _SecondaryLUT_sampler, coords, 0.0).rgb;
         filtered = mix(filtered, secondary, mat._Lerp);
     }
     filtered = filtered * gain;

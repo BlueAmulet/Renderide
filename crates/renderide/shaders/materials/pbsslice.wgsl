@@ -47,8 +47,8 @@ const PBSSLICE_KW_DETAIL_NORMALMAP: u32 = 1u << 3u;
 const PBSSLICE_KW_EMISSIONTEX: u32 = 1u << 4u;
 const PBSSLICE_KW_METALLICMAP: u32 = 1u << 5u;
 const PBSSLICE_KW_NORMALMAP: u32 = 1u << 6u;
-const PBSSLICE_KW_OBJECT_SPACE: u32 = 1u << 7u;
-const PBSSLICE_KW_OCCLUSION: u32 = 1u << 8u;
+const PBSSLICE_KW_OCCLUSION: u32 = 1u << 7u;
+const PBSSLICE_KW_OBJECT_SPACE: u32 = 1u << 8u;
 const PBSSLICE_KW_WORLD_SPACE: u32 = 1u << 9u;
 
 @group(1) @binding(0)  var<uniform> mat: PBSSliceMaterial;

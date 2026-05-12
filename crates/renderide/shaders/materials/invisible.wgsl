@@ -6,12 +6,6 @@
 #import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 
-struct InvisibleMaterial {
-    _pad: vec4<f32>,
-}
-
-@group(1) @binding(0) var<uniform> mat: InvisibleMaterial;
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -36,5 +30,5 @@ fn vs_main(
 @fragment
 fn fs_main() -> @location(0) vec4<f32> {
     discard;
-    return rg::retain_globals_additive(vec4<f32>(mat._pad.x * 0.0));
+    return rg::retain_globals_additive(vec4<f32>(0.0));
 }

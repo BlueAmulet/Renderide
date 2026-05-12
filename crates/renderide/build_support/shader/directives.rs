@@ -90,6 +90,10 @@ pub(super) struct BuildPassDirective {
     pub vertex_entry: String,
     /// Whether this pass enables hardware alpha-to-coverage.
     pub alpha_to_coverage: bool,
+    /// Static reverse-Z slope depth bias emitted from Unity `Offset factor`.
+    pub depth_bias_slope_scale_bits: u32,
+    /// Static reverse-Z constant depth bias emitted from Unity `Offset units`.
+    pub depth_bias_constant: i32,
 }
 
 /// Parses `fn <name>(...)` out of a line.
@@ -168,6 +172,8 @@ pub(super) fn parse_pass_directives(
         let kind = BuildPassKind::parse(kind_value, file, line_no)?;
         let mut vertex_entry = "vs_main".to_string();
         let mut alpha_to_coverage = false;
+        let mut depth_bias_slope_scale_bits = 0.0f32.to_bits();
+        let mut depth_bias_constant = 0;
         for token in tokens {
             let (key, value) = token.split_once('=').ok_or_else(|| {
                 BuildError::Message(format!(
@@ -179,9 +185,17 @@ pub(super) fn parse_pass_directives(
                 "a2c" | "alpha_to_coverage" => {
                     alpha_to_coverage = parse_bool_value(value.trim(), file, line_no, key.trim())?;
                 }
+                "offset_factor" | "offsetfactor" => {
+                    let factor = parse_f32_value(value.trim(), file, line_no, key.trim())?;
+                    depth_bias_slope_scale_bits = reverse_z_offset_factor(factor).to_bits();
+                }
+                "offset_units" | "offsetunits" => {
+                    let units = parse_f32_value(value.trim(), file, line_no, key.trim())?;
+                    depth_bias_constant = unity_offset_units(units).saturating_neg();
+                }
                 _ => {
                     return Err(BuildError::Message(format!(
-                        "{file}:{line_no}: unknown `//#pass` override `{key}` (allowed: `vs=`, `a2c=`)"
+                        "{file}:{line_no}: unknown `//#pass` override `{key}` (allowed: `vs=`, `a2c=`, `offset_factor=`, `offset_units=`)"
                     )));
                 }
             }
@@ -192,6 +206,8 @@ pub(super) fn parse_pass_directives(
             fragment_entry,
             vertex_entry,
             alpha_to_coverage,
+            depth_bias_slope_scale_bits,
+            depth_bias_constant,
         });
     }
     Ok(passes)
@@ -206,6 +222,38 @@ fn parse_bool_value(value: &str, file: &str, line: usize, key: &str) -> Result<b
             "{file}:{line}: `//#pass` override `{key}` expects a boolean value, got `{value}`"
         ))),
     }
+}
+
+/// Parses a finite `f32` pass override.
+fn parse_f32_value(value: &str, file: &str, line: usize, key: &str) -> Result<f32, BuildError> {
+    let parsed = value.parse::<f32>().map_err(|e| {
+        BuildError::Message(format!(
+            "{file}:{line}: `//#pass` override `{key}` expects a finite f32 value, got `{value}`: {e}"
+        ))
+    })?;
+    if !parsed.is_finite() {
+        return Err(BuildError::Message(format!(
+            "{file}:{line}: `//#pass` override `{key}` expects a finite f32 value, got `{value}`"
+        )));
+    }
+    Ok(parsed)
+}
+
+/// Rounds and saturates Unity `Offset units` into wgpu's constant depth-bias integer.
+fn unity_offset_units(v: f32) -> i32 {
+    let rounded = v.round();
+    if rounded >= i32::MAX as f32 {
+        i32::MAX
+    } else if rounded <= i32::MIN as f32 {
+        i32::MIN
+    } else {
+        rounded as i32
+    }
+}
+
+/// Converts Unity's positive-forward depth slope bias to reverse-Z without preserving negative zero.
+fn reverse_z_offset_factor(v: f32) -> f32 {
+    if v == 0.0 { 0.0 } else { -v }
 }
 
 /// Parses an optional `//#source_alias <stem>` directive from a thin shader wrapper.
@@ -254,19 +302,28 @@ pub(super) fn pass_literal(pass: &BuildPassDirective) -> String {
         "crate::materials::pass_from_kind(crate::materials::PassKind::{kind}, {fs:?})",
         fs = pass.fragment_entry.as_str(),
     );
-    match (pass.vertex_entry == "vs_main", pass.alpha_to_coverage) {
-        (true, false) => base,
-        (false, false) => format!(
-            "crate::materials::MaterialPassDesc {{ vertex_entry: {vs:?}, ..{base} }}",
-            vs = pass.vertex_entry.as_str(),
-        ),
-        (true, true) => {
-            format!("crate::materials::MaterialPassDesc {{ alpha_to_coverage: true, ..{base} }}")
-        }
-        (false, true) => format!(
-            "crate::materials::MaterialPassDesc {{ vertex_entry: {vs:?}, alpha_to_coverage: true, ..{base} }}",
-            vs = pass.vertex_entry.as_str(),
-        ),
+    let mut overrides = Vec::new();
+    if pass.vertex_entry != "vs_main" {
+        overrides.push(format!(
+            "vertex_entry: {vs:?}",
+            vs = pass.vertex_entry.as_str()
+        ));
+    }
+    if pass.alpha_to_coverage {
+        overrides.push("alpha_to_coverage: true".to_string());
+    }
+    if pass.depth_bias_slope_scale_bits != 0.0f32.to_bits() || pass.depth_bias_constant != 0 {
+        let slope = f32::from_bits(pass.depth_bias_slope_scale_bits);
+        overrides.push(format!("depth_bias_slope_scale: {slope:?}"));
+        overrides.push(format!("depth_bias_constant: {}", pass.depth_bias_constant));
+    }
+    if overrides.is_empty() {
+        base
+    } else {
+        format!(
+            "crate::materials::MaterialPassDesc {{ {}, ..{base} }}",
+            overrides.join(", ")
+        )
     }
 }
 
@@ -316,6 +373,8 @@ fn fs_outline() -> @location(0) vec4<f32> {
                 fragment_entry: "fs_outline".to_string(),
                 vertex_entry: "vs_outline".to_string(),
                 alpha_to_coverage: false,
+                depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                depth_bias_constant: 0,
             }]
         );
         Ok(())
@@ -342,6 +401,8 @@ fn fs_main() -> @location(0) vec4<f32> {
                 fragment_entry: "fs_main".to_string(),
                 vertex_entry: "vs_main".to_string(),
                 alpha_to_coverage: true,
+                depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                depth_bias_constant: 0,
             }]
         );
         Ok(())
@@ -375,12 +436,16 @@ fn fs_circle() -> @location(0) vec4<f32> {
                     fragment_entry: "fs_depth_projection".to_string(),
                     vertex_entry: "vs_main".to_string(),
                     alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
                 },
                 BuildPassDirective {
                     kind: BuildPassKind::TransparentRgb,
                     fragment_entry: "fs_circle".to_string(),
                     vertex_entry: "vs_main".to_string(),
                     alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
                 },
             ]
         );
@@ -441,24 +506,76 @@ fn fs_front_faces() -> @location(0) vec4<f32> {
                     fragment_entry: "fs_transparent".to_string(),
                     vertex_entry: "vs_main".to_string(),
                     alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
                 },
                 BuildPassDirective {
                     kind: BuildPassKind::ForwardTransparentCullFront,
                     fragment_entry: "fs_back_faces".to_string(),
                     vertex_entry: "vs_main".to_string(),
                     alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
                 },
                 BuildPassDirective {
                     kind: BuildPassKind::ForwardTransparentCullBack,
                     fragment_entry: "fs_front_faces".to_string(),
                     vertex_entry: "vs_main".to_string(),
                     alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
                 },
             ]
         );
         assert_eq!(
             pass_literal(&passes[2]),
             "crate::materials::pass_from_kind(crate::materials::PassKind::ForwardTransparentCullBack, \"fs_front_faces\")"
+        );
+        Ok(())
+    }
+
+    /// Static Unity pass offsets are converted to reverse-Z wgpu depth-bias defaults.
+    #[test]
+    fn pass_directive_extracts_static_unity_offset() -> Result<(), BuildError> {
+        let passes = parse_pass_directives(
+            r#"
+//#pass forward offset_factor=2 offset_units=2
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
+"#,
+            "null.wgsl",
+        )?;
+
+        assert_eq!(passes[0].depth_bias_slope_scale_bits, (-2.0f32).to_bits());
+        assert_eq!(passes[0].depth_bias_constant, -2);
+        assert_eq!(
+            pass_literal(&passes[0]),
+            "crate::materials::MaterialPassDesc { depth_bias_slope_scale: -2.0, depth_bias_constant: -2, ..crate::materials::pass_from_kind(crate::materials::PassKind::Forward, \"fs_main\") }"
+        );
+        Ok(())
+    }
+
+    /// Zero Unity slope offset stays a canonical zero in generated pass literals.
+    #[test]
+    fn pass_directive_canonicalizes_zero_unity_offset_factor() -> Result<(), BuildError> {
+        let passes = parse_pass_directives(
+            r#"
+//#pass forward offset_factor=0 offset_units=1
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
+"#,
+            "newunlitshader.wgsl",
+        )?;
+
+        assert_eq!(passes[0].depth_bias_slope_scale_bits, 0.0f32.to_bits());
+        assert_eq!(passes[0].depth_bias_constant, -1);
+        assert_eq!(
+            pass_literal(&passes[0]),
+            "crate::materials::MaterialPassDesc { depth_bias_slope_scale: 0.0, depth_bias_constant: -1, ..crate::materials::pass_from_kind(crate::materials::PassKind::Forward, \"fs_main\") }"
         );
         Ok(())
     }
