@@ -67,10 +67,6 @@ struct XiexeToon2Material {
     _MainTex_ST: vec4<f32>,
     /// `_BumpMap` UV scale/offset.
     _BumpMap_ST: vec4<f32>,
-    /// `_DetailNormalMap` UV scale/offset.
-    _DetailNormalMap_ST: vec4<f32>,
-    /// `_DetailMask` UV scale/offset.
-    _DetailMask_ST: vec4<f32>,
     /// `_MetallicGlossMap` UV scale/offset.
     _MetallicGlossMap_ST: vec4<f32>,
     /// `_EmissionMap` UV scale/offset.
@@ -83,8 +79,6 @@ struct XiexeToon2Material {
     _CutoutMask_ST: vec4<f32>,
     /// `_ReflectivityMask` UV scale/offset.
     _ReflectivityMask_ST: vec4<f32>,
-    /// `_SpecularMap` UV scale/offset.
-    _SpecularMap_ST: vec4<f32>,
 
     /// Alpha cutoff threshold for the cutout / masked-coverage paths.
     _Cutoff: f32,
@@ -92,32 +86,12 @@ struct XiexeToon2Material {
     _Saturation: f32,
     /// Tangent-space normal-map intensity.
     _BumpScale: f32,
-    /// Tangent-space detail-normal intensity.
-    _DetailNormalMapScale: f32,
     /// Metallic factor multiplied into `_MetallicGlossMap.r`.
     _Metallic: f32,
     /// Smoothness factor multiplied into `_MetallicGlossMap.a`.
     _Glossiness: f32,
     /// Reflectivity weight applied to indirect specular.
     _Reflectivity: f32,
-    /// Clear-coat layer strength multiplier.
-    _ClearcoatStrength: f32,
-    /// Clear-coat smoothness.
-    _ClearcoatSmoothness: f32,
-    /// Reflection mode: 0 = PBR, 1 = baked cubemap, 2 = matcap, 3 = off.
-    _ReflectionMode: f32,
-    /// Reflection blend mode: 0 = additive, 1 = multiplicative, 2 = subtractive.
-    _ReflectionBlendMode: f32,
-    /// Host storage-orientation flag for `_BakedCubemap`.
-    _BakedCubemap_StorageVInverted: f32,
-    /// Clear-coat enable flag.
-    _ClearCoat: f32,
-    /// Emission light-scaling flag (`0 = scale with light`, `1 = keep emission unscaled`).
-    _ScaleWithLight: f32,
-    /// Lerp factor that blends emission toward `emission * albedo`.
-    _EmissionToDiffuse: f32,
-    /// Sensitivity coefficient for the `_ScaleWithLight` mode.
-    _ScaleWithLightSensitivity: f32,
 
     /// Lerp factor that tints rim by albedo.
     _RimAlbedoTint: f32,
@@ -140,17 +114,6 @@ struct XiexeToon2Material {
     _SpecularArea: f32,
     /// Lerp factor that tints specular highlight by albedo.
     _SpecularAlbedoTint: f32,
-    /// Spec mode selector. Passthrough: the upstream `calcDirectSpecular` switch on this
-    /// value (`XSLightingFunctions.cginc:187-210`) is commented out, so the Unity reference
-    /// always runs the standard smooth GGX path. The field is kept for material parity.
-    _SpecMode: f32,
-    /// Spec style selector. Same upstream-stubbed status as `_SpecMode`.
-    _SpecularStyle: f32,
-    /// Anisotropic alpha along tangent. Upstream `D_GGXAnisotropic` is defined but never
-    /// called from the live specular path; kept for material parity.
-    _AnisotropicAX: f32,
-    /// Anisotropic alpha along bitangent. See `_AnisotropicAX`.
-    _AnisotropicAY: f32,
 
     /// Sharpens the shadow attenuation transition. `0` = smooth, `1` = hard step.
     _ShadowSharpness: f32,
@@ -188,32 +151,16 @@ struct XiexeToon2Material {
     _FadeDither: f32,
     /// Distance at which the fade-dither starts to take effect.
     _FadeDitherDistance: f32,
-    /// Halftone dot size. The upstream `DotHalftone`/`LineHalftone` helpers in
-    /// `XSHelperFunctions.cginc:229-272` are commented out as "finish implementing later",
-    /// so the Unity reference does not modulate shading by halftone. Kept for material parity.
-    _HalftoneDotSize: f32,
-    /// Halftone dot density. See `_HalftoneDotSize`.
-    _HalftoneDotAmount: f32,
-    /// Halftone line density. See `_HalftoneDotSize`.
-    _HalftoneLineAmount: f32,
 
     /// Enables vertex-color-tinted albedo (Unity `VERTEX_COLOR_ALBEDO`).
     _VertexColorAlbedo: f32,
-    /// Tiling-mode selector (passthrough; merged-UV path is not implemented).
-    _TilingMode: f32,
 
     /// UV set selector (0 = UV0, 1 = UV1) for albedo.
     _UVSetAlbedo: f32,
     /// UV set selector for the base normal map.
     _UVSetNormal: f32,
-    /// UV set selector for the detail normal map.
-    _UVSetDetNormal: f32,
-    /// UV set selector for the detail mask.
-    _UVSetDetMask: f32,
     /// UV set selector for the metallic/gloss map.
     _UVSetMetallic: f32,
-    /// UV set selector for the specular map.
-    _UVSetSpecular: f32,
     /// UV set selector for the reflectivity mask.
     _UVSetReflectivity: f32,
     /// UV set selector for the thickness map.
@@ -275,28 +222,10 @@ struct XiexeToon2Material {
 @group(1) @binding(21) var _Matcap: texture_2d<f32>;
 /// Matcap sampler.
 @group(1) @binding(22) var _Matcap_sampler: sampler;
-/// Detail normal map (additive over `_BumpMap`).
-@group(1) @binding(23) var _DetailNormalMap: texture_2d<f32>;
-/// Detail normal sampler.
-@group(1) @binding(24) var _DetailNormalMap_sampler: sampler;
-/// Detail mask gating detail-normal contribution.
-@group(1) @binding(25) var _DetailMask: texture_2d<f32>;
-/// Detail-mask sampler.
-@group(1) @binding(26) var _DetailMask_sampler: sampler;
 /// Reflectivity mask gating indirect specular contribution.
-@group(1) @binding(27) var _ReflectivityMask: texture_2d<f32>;
+@group(1) @binding(23) var _ReflectivityMask: texture_2d<f32>;
 /// Reflectivity-mask sampler.
-@group(1) @binding(28) var _ReflectivityMask_sampler: sampler;
-/// Specular-mask map: `.r` highlight strength, `.g` albedo-tint, `.b` smoothness scale.
-@group(1) @binding(29) var _SpecularMap: texture_2d<f32>;
-/// Specular-map sampler.
-@group(1) @binding(30) var _SpecularMap_sampler: sampler;
-/// Per-material baked cubemap sampled by `_ReflectionMode == 1`. The host uploads the
-/// Unity `_BakedCubemap` (CUBE) property; an unbound material falls back to the resident
-/// black-cube default in the texture pool.
-@group(1) @binding(31) var _BakedCubemap: texture_cube<f32>;
-/// Baked-cubemap sampler.
-@group(1) @binding(32) var _BakedCubemap_sampler: sampler;
+@group(1) @binding(24) var _ReflectivityMask_sampler: sampler;
 
 /// Vertex-to-fragment payload carried by every xiexe-toon variant. The two-UV-set layout
 /// mirrors Unity `VertexOutput`/`g2f` so material-property UV selectors keep working.
@@ -347,24 +276,18 @@ struct SurfaceData {
     roughness: f32,
     /// Raw smoothness (for matcap LOD selection).
     smoothness: f32,
-    /// Effective clear-coat strength after `_ClearcoatStrength * metallicGlossMap.b`.
-    clearcoat_strength: f32,
-    /// Effective clear-coat smoothness after `_ClearcoatSmoothness * metallicGlossMap.g`.
-    clearcoat_smoothness: f32,
     /// Scalar reflectivity control used for the dielectric Fresnel floor.
     reflectivity: f32,
     /// `_ReflectivityMask.r`, used when blending indirect specular into the surface.
     reflectivity_mask: f32,
     /// AO color tint, lerped from `_OcclusionColor` to white by AO sample.
     occlusion: vec3<f32>,
-    /// Base emission sample before `_EmissionToDiffuse` / `_ScaleWithLight` are applied.
+    /// Base emission sample.
     emission: vec3<f32>,
     /// Ramp-mask row used as the V coordinate when sampling `_Ramp`.
     ramp_mask: f32,
     /// Subsurface thickness sample.
     thickness: f32,
-    /// Specular-map sample (channels documented on the binding).
-    specular_mask: vec4<f32>,
 }
 
 /// One resolved punctual / directional light at a surface point.
@@ -419,18 +342,6 @@ fn grayscale(v: vec3<f32>) -> f32 {
 fn maybe_saturate_color(c: vec3<f32>) -> vec3<f32> {
     let g = vec3<f32>(grayscale(c));
     return mix(g, c, mat._Saturation);
-}
-
-/// True when the scalar `_ClearCoat` property is on and both clear-coat strength and smoothness
-/// are non-zero. `_ClearCoat` is a Unity material property, not a multi_compile keyword.
-fn clearcoat_enabled() -> bool {
-    return prop_flag(mat._ClearCoat) && mat._ClearcoatStrength > 1e-4 && mat._ClearcoatSmoothness > 1e-4;
-}
-
-/// True when emission should be dimmed by scene brightness. `_ScaleWithLight` is a Unity
-/// material property in XSToon2.0, so this is not driven by the variant bitmask.
-fn scale_with_light_enabled() -> bool {
-    return mat._ScaleWithLight < 0.5 && mat._ScaleWithLightSensitivity > 1e-4;
 }
 
 /// Selects between the primary and secondary UV sets based on a Unity `_UVSetX` scalar
