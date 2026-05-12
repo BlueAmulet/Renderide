@@ -36,8 +36,8 @@
 #import renderide::lighting::reflection_probes as rprobe
 
 /// SH-probe sample used for xiexe's uncoloured indirect-diffuse term.
-fn indirect_diffuse(s: xb::SurfaceData, view_layer: u32) -> vec3<f32> {
-    return rprobe::indirect_diffuse(s.normal, view_layer, true);
+fn indirect_diffuse(s: xb::SurfaceData, world_pos: vec3<f32>, view_layer: u32) -> vec3<f32> {
+    return rprobe::indirect_diffuse(world_pos, s.normal, view_layer, true);
 }
 
 /// Scalar AO weight used by the indirect-specular Lagarde occlusion term.
@@ -378,7 +378,7 @@ fn clustered_toon_lighting(
     base_pass: bool,
 ) -> vec3<f32> {
     let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
-    let ambient = indirect_diffuse(s, view_layer);
+    let ambient = indirect_diffuse(s, world_pos, view_layer);
     let env = environment_tint(s, view_dir, world_pos, view_layer);
     let primary_specular_terms = primary_direct_specular_terms(s, view_dir);
 
@@ -525,7 +525,7 @@ fn clustered_outline_lighting(
     world_pos: vec3<f32>,
     view_layer: u32,
 ) -> vec3<f32> {
-    let ambient = indirect_diffuse(s, view_layer);
+    let ambient = indirect_diffuse(s, world_pos, view_layer);
     let cluster_id = pcls::cluster_id_from_frag(
         frag_xy,
         world_pos,

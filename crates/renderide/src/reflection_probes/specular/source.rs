@@ -18,7 +18,9 @@ use crate::skybox::specular::{
 use crate::world_mesh::culling::world_aabb_from_local_bounds;
 
 use super::captures::{RuntimeReflectionProbeCaptureKey, RuntimeReflectionProbeCaptureStore};
-use super::selection::{SpatialProbe, aabb_valid, aabb_volume};
+use super::selection::{
+    SpatialProbe, aabb_valid, aabb_volume, expanded_aabb, sanitized_blend_distance,
+};
 
 pub(super) fn resolve_probe_source(
     space_id: RenderSpaceId,
@@ -146,14 +148,19 @@ pub(super) fn spatial_probe_for_state(
     if !aabb_valid(min, max) {
         return None;
     }
+    let blend_distance = sanitized_blend_distance(probe.state.blend_distance);
+    let (influence_aabb_min, influence_aabb_max) = expanded_aabb(min, max, blend_distance);
     Some(SpatialProbe {
         renderable_index: probe.renderable_index,
         atlas_index,
         importance: probe.state.importance,
         aabb_min: Vec3A::from(min),
         aabb_max: Vec3A::from(max),
+        influence_aabb_min,
+        influence_aabb_max,
         center: Vec3A::from(world.transform_point3(Vec3::ZERO)),
         volume: aabb_volume(min, max),
+        blend_distance,
     })
 }
 
@@ -172,7 +179,7 @@ pub(super) fn metadata_for_spatial(
             spatial.aabb_min.x,
             spatial.aabb_min.y,
             spatial.aabb_min.z,
-            0.0,
+            sanitized_blend_distance(state.blend_distance),
         ],
         box_max: [
             spatial.aabb_max.x,
@@ -225,14 +232,18 @@ mod tests {
     use super::*;
 
     fn probe(index: i32, atlas: u16, importance: i32, min: Vec3, max: Vec3) -> SpatialProbe {
+        let (influence_aabb_min, influence_aabb_max) = expanded_aabb(min, max, 0.0);
         SpatialProbe {
             renderable_index: index,
             atlas_index: atlas,
             importance,
             aabb_min: Vec3A::from(min),
             aabb_max: Vec3A::from(max),
+            influence_aabb_min,
+            influence_aabb_max,
             center: Vec3A::from((min + max) * 0.5),
             volume: aabb_volume(min, max),
+            blend_distance: 0.0,
         }
     }
 
@@ -325,5 +336,32 @@ mod tests {
             metadata.params[3],
             REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL
         );
+    }
+
+    #[test]
+    fn spatial_probe_metadata_stores_sanitized_blend_distance() {
+        let spatial = probe(0, 3, 0, Vec3::splat(-1.0), Vec3::splat(1.0));
+        let sh = RenderSH2::default();
+        let metadata = metadata_for_spatial(
+            &spatial,
+            ReflectionProbeState {
+                blend_distance: 2.5,
+                intensity: 1.0,
+                ..ReflectionProbeState::default()
+            },
+            &sh,
+        );
+        let negative = metadata_for_spatial(
+            &spatial,
+            ReflectionProbeState {
+                blend_distance: -1.0,
+                intensity: 1.0,
+                ..ReflectionProbeState::default()
+            },
+            &sh,
+        );
+
+        assert_eq!(metadata.box_min[3], 2.5);
+        assert_eq!(negative.box_min[3], 0.0);
     }
 }
