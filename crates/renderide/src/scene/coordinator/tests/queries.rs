@@ -4,7 +4,6 @@
 
 use glam::{Mat4, Quat, Vec3};
 
-use crate::assets::texture::{HostTextureAssetKind, pack_host_texture_id};
 use crate::camera::{view_matrix_for_world_mesh_render_space, view_matrix_from_render_transform};
 use crate::scene::CameraRenderableEntry;
 use crate::scene::blit_to_display::BlitToDisplayEntry;
@@ -195,49 +194,10 @@ fn active_blit_for_display_skips_inactive_uninitialized_and_invalid_sources() {
 }
 
 #[test]
-fn desktop_blit_for_display_prefers_explicit_blit_over_dash_fallback() {
-    let mut scene = SceneCoordinator::new();
-    let overlay = RenderSpaceId(1);
-    let explicit = RenderSpaceId(2);
-    scene.spaces.insert(
-        overlay,
-        RenderSpaceState {
-            id: overlay,
-            is_active: true,
-            is_overlay: true,
-            cameras: vec![CameraRenderableEntry {
-                renderable_index: 0,
-                transform_id: 0,
-                state: CameraState {
-                    projection: CameraProjection::Orthographic,
-                    render_texture_asset_id: 77,
-                    selective_render_count: 1,
-                    flags: 1,
-                    ..Default::default()
-                },
-                selective_transform_ids: vec![5],
-                exclude_transform_ids: Vec::new(),
-            }],
-            ..Default::default()
-        },
-    );
-    scene.spaces.insert(
-        explicit,
-        RenderSpaceState {
-            id: explicit,
-            is_active: true,
-            blit_to_displays: vec![initialized_blit(blit_state(0, 0, 42))],
-            ..Default::default()
-        },
-    );
-
-    let state = scene.desktop_blit_for_display(0).expect("desktop source");
-
-    assert_eq!(state.texture_id, 42);
-}
-
-#[test]
-fn desktop_blit_for_display_synthesizes_dash_fallback_for_display_zero_only() {
+fn active_blit_for_display_ignores_overlay_dash_camera() {
+    // Regression: the desktop dash camera (overlay render-space + orthographic + selective RT)
+    // must NOT synthesize a synthetic blit. The CurvedPlaneMeshes draw through the overlay-layer
+    // mesh path in `world_mesh_forward`, not a fullscreen blit of the dash RT.
     let mut scene = SceneCoordinator::new();
     let overlay = RenderSpaceId(3);
     scene.spaces.insert(
@@ -263,14 +223,8 @@ fn desktop_blit_for_display_synthesizes_dash_fallback_for_display_zero_only() {
         },
     );
 
-    let state = scene.desktop_blit_for_display(0).expect("dash fallback");
-    let expected_texture =
-        pack_host_texture_id(77, HostTextureAssetKind::RenderTexture).expect("packable id");
-
-    assert_eq!(state.texture_id, expected_texture);
-    assert_eq!(state.display_index, 0);
-    assert!(scene.desktop_blit_for_display(1).is_none());
     assert!(scene.active_blit_for_display(0).is_none());
+    assert!(scene.active_blit_for_display(1).is_none());
 }
 
 #[test]
@@ -406,6 +360,13 @@ fn render_context_light_resolution_tracks_overlay_head_output_transform() {
     assert!((pos.z + 4.0).abs() < 1e-4);
 }
 
+/// Equivalent of Unity's `OverlayRootPositioner` zeroing the OverlayRoot's world transform:
+/// the matrix returned by `overlay_layer_model_matrix_for_context` is the leaf's pose expressed
+/// in OverlayRoot's **own local frame**, NOT in OverlayRoot's parent frame. Concretely the
+/// ancestor's own local TRS is excluded from the chain so that any rotation / translation /
+/// scale on the OverlayRoot (which is normal in FrooxEngine: `OverlayManager` adds it under its
+/// owning slot with whatever local pose results from the slot system) does not bleed into every
+/// overlay draw.
 #[test]
 fn overlay_layer_model_matrix_strips_ancestors_above_overlay_root() {
     let mut scene = SceneCoordinator::new();
@@ -457,11 +418,305 @@ fn overlay_layer_model_matrix_strips_ancestors_above_overlay_root() {
     assert!(scene.transform_is_in_overlay_layer(id, 1));
     assert!(!scene.transform_is_in_overlay_layer(id, 0));
 
+    // World position: 10 (node 0) + 2 (node 1) + 4 (node 2) = 16.
     let world_t = world.col(3).truncate();
-    let overlay_t = overlay.col(3).truncate();
     assert!((world_t.x - 16.0).abs() < 1e-4);
-    assert!((overlay_t.x - 6.0).abs() < 1e-4);
-    assert!((overlay_t.y - 8.0).abs() < 1e-4);
+
+    // Overlay-relative position: ONLY node 2's local (4, 5, 0). Node 1's own local (the
+    // OverlayRoot) and node 0 above are stripped, mirroring Unity's OverlayRootPositioner
+    // forcing the OverlayRoot's world transform to identity each frame.
+    let overlay_t = overlay.col(3).truncate();
+    assert!(
+        (overlay_t.x - 4.0).abs() < 1e-4,
+        "expected node 2's local x=4 (OverlayRoot's own translation 2 excluded), got {}",
+        overlay_t.x,
+    );
+    assert!(
+        (overlay_t.y - 5.0).abs() < 1e-4,
+        "expected node 2's local y=5 (OverlayRoot's own translation 3 excluded), got {}",
+        overlay_t.y,
+    );
+}
+
+/// Mimics the FrooxEngine RadiantDash + OverlayManager hierarchy in desktop mode:
+///
+/// ```text
+/// Node 0  Userspace world root
+/// Node 1  OverlayManager.Slot          (some local pose: pos+rot, scale 1)
+/// Node 2  OverlayManager.OverlayRoot   (Overlay layer, identity local from AddSlot)
+/// Node 3  Dash.VisualsRoot             (SetIdentityTransform + LocalScale 2)
+/// Node 4  Dash.Visuals/Screen          (curved plane at local pos)
+/// ```
+///
+/// Verifies that the curved plane (node 4) renders at NDC near screen center when combined
+/// with overlay ortho + identity view, regardless of how OverlayManager.Slot is placed.
+#[test]
+fn overlay_model_matrix_for_dash_like_hierarchy_ignores_overlay_root_local_pose() {
+    let mut scene = SceneCoordinator::new();
+    let id = RenderSpaceId(101);
+    scene.spaces.insert(
+        id,
+        RenderSpaceState {
+            id,
+            is_active: true,
+            is_overlay: true,
+            nodes: vec![
+                // Node 0: userspace world root.
+                identity_transform(),
+                // Node 1: OverlayManager.Slot, lives somewhere out in space. Should NOT affect overlay draws.
+                RenderTransform {
+                    position: Vec3::new(7.0, -3.0, 11.5),
+                    scale: Vec3::splat(2.5),
+                    rotation: Quat::from_axis_angle(Vec3::Y, 0.7),
+                },
+                // Node 2: OverlayRoot itself, identity local (AddSlot default), Overlay layer.
+                identity_transform(),
+                // Node 3: VisualsRoot, identity rotation/translation, fit-to-screen scale.
+                RenderTransform {
+                    position: Vec3::ZERO,
+                    scale: Vec3::splat(2.0),
+                    rotation: Quat::IDENTITY,
+                },
+                // Node 4: a curved plane positioned mid-screen by RadiantDash's layout math.
+                RenderTransform {
+                    position: Vec3::new(0.0, 0.1, 0.0),
+                    scale: Vec3::ONE,
+                    rotation: Quat::IDENTITY,
+                },
+            ],
+            node_parents: vec![-1, 0, 1, 2, 3],
+            layer_assignments: vec![crate::scene::render_space::LayerAssignmentEntry {
+                node_id: 2,
+                layer: crate::shared::LayerType::Overlay,
+            }],
+            layer_index_dirty: true,
+            ..Default::default()
+        },
+    );
+    let space = scene.spaces.get(&id).expect("space");
+    let mut cache = WorldTransformCache::default();
+    compute_world_matrices_for_space(id.0, &space.nodes, &space.node_parents, &mut cache)
+        .expect("solve");
+    scene.world_caches.insert(id, cache);
+
+    assert!(scene.transform_is_in_overlay_layer(id, 4));
+    assert!(scene.transform_is_in_overlay_layer(id, 3));
+    assert!(scene.transform_is_in_overlay_layer(id, 2));
+    assert!(!scene.transform_is_in_overlay_layer(id, 1));
+    assert!(!scene.transform_is_in_overlay_layer(id, 0));
+
+    let model = scene
+        .overlay_layer_model_matrix_for_context(id, 4, RenderingContext::UserView)
+        .expect("overlay model");
+
+    // Effective chain for node 4 below OverlayRoot:
+    //   M = VisualsRoot.local * Plane.local
+    //     = scale(2) * trans(0, 0.1, 0)
+    // Origin maps to (0, 0.2, 0). Crucially this is independent of OverlayManager.Slot's pose
+    // (node 1), which is where the dash-in-3D bug came from.
+    let origin = model * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
+    assert!(origin.x.abs() < 1e-4, "expected x≈0, got {}", origin.x);
+    assert!(
+        (origin.y - 0.2).abs() < 1e-4,
+        "expected y≈0.2 (VisualsRoot scale 2 * Plane y 0.1), got {}",
+        origin.y,
+    );
+    assert!(origin.z.abs() < 1e-4, "expected z≈0, got {}", origin.z);
+
+    // Sanity: a vertex at the curved plane's local (0.5, 0, 0) ends up at (1.0, 0.2, 0) in
+    // OverlayRoot-local space after VisualsRoot's scale-by-2 applies. That's the half-width
+    // boundary of a unit ortho -- right edge of screen.
+    let right = model * glam::Vec4::new(0.5, 0.0, 0.0, 1.0);
+    assert!(
+        (right.x - 1.0).abs() < 1e-4,
+        "expected x≈1.0, got {}",
+        right.x
+    );
+}
+
+/// Same hierarchy as above, but the OverlayRoot (node 2) is given a **non-identity local pose**
+/// to prove that ancestor pose is genuinely stripped even when it's not identity. Mirrors the
+/// failure case where `OverlayManager.OverlayRoot` ends up under a slot that itself has been
+/// rotated / scaled by the host.
+#[test]
+fn overlay_model_matrix_strips_non_identity_overlay_root_local() {
+    let mut scene = SceneCoordinator::new();
+    let id = RenderSpaceId(102);
+    scene.spaces.insert(
+        id,
+        RenderSpaceState {
+            id,
+            is_active: true,
+            is_overlay: true,
+            nodes: vec![
+                identity_transform(),
+                // OverlayRoot with a deliberately non-identity local. This is the pose that the
+                // OLD `matrix_from_ancestor_for_context` incorrectly folded into every overlay
+                // child's model matrix, manifesting as the dash floating in 3D in front of the
+                // avatar.
+                RenderTransform {
+                    position: Vec3::new(3.0, 4.0, 5.0),
+                    scale: Vec3::splat(1.5),
+                    rotation: Quat::from_axis_angle(Vec3::X, 0.9),
+                },
+                // Leaf at local origin.
+                identity_transform(),
+            ],
+            node_parents: vec![-1, 0, 1],
+            layer_assignments: vec![crate::scene::render_space::LayerAssignmentEntry {
+                node_id: 1,
+                layer: crate::shared::LayerType::Overlay,
+            }],
+            layer_index_dirty: true,
+            ..Default::default()
+        },
+    );
+    let space = scene.spaces.get(&id).expect("space");
+    let mut cache = WorldTransformCache::default();
+    compute_world_matrices_for_space(id.0, &space.nodes, &space.node_parents, &mut cache)
+        .expect("solve");
+    scene.world_caches.insert(id, cache);
+
+    let model = scene
+        .overlay_layer_model_matrix_for_context(id, 2, RenderingContext::UserView)
+        .expect("overlay model");
+
+    // Leaf has identity local -> overlay-relative matrix MUST be identity, NOT the OverlayRoot's
+    // local pose. Any non-zero translation here would put the overlay-anchored leaf out in 3D.
+    let origin = model * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
+    assert!(
+        origin.x.abs() < 1e-4,
+        "leaked OverlayRoot.position.x: {}",
+        origin.x
+    );
+    assert!(
+        origin.y.abs() < 1e-4,
+        "leaked OverlayRoot.position.y: {}",
+        origin.y
+    );
+    assert!(
+        origin.z.abs() < 1e-4,
+        "leaked OverlayRoot.position.z: {}",
+        origin.z
+    );
+
+    // And a non-origin leaf vertex must not get rotated by the OverlayRoot's rotation.
+    let plus_x = model * glam::Vec4::new(1.0, 0.0, 0.0, 1.0);
+    assert!(
+        (plus_x.x - 1.0).abs() < 1e-4,
+        "expected x≈1.0, got {}",
+        plus_x.x
+    );
+    assert!(
+        plus_x.y.abs() < 1e-4,
+        "expected y≈0 (no rotation leak), got {}",
+        plus_x.y
+    );
+    assert!(
+        plus_x.z.abs() < 1e-4,
+        "expected z≈0 (no rotation leak), got {}",
+        plus_x.z
+    );
+}
+
+/// Full pipeline assertion mimicking the dash hierarchy as it actually exists in FrooxEngine
+/// after `UserspaceRadiantDash.UpdateOverlayState` reparents `VisualsRoot` under `OverlayRoot`
+/// with `SetIdentityTransform()`. Uses the same overlay view-shift the renderer applies in
+/// `compute_per_draw_vp_matrices`, so a curved-plane vertex at OverlayRoot-local origin
+/// projects to screen NDC center -- not clipped by the near plane and not displaced into 3D
+/// by any of OverlayManager.Slot's world pose.
+#[test]
+fn full_pipeline_overlay_vertex_projects_to_screen_ndc() {
+    use crate::camera::{CameraClipPlanes, HostCameraFrame, Viewport};
+
+    let mut scene = SceneCoordinator::new();
+    let id = RenderSpaceId(103);
+    scene.spaces.insert(
+        id,
+        RenderSpaceState {
+            id,
+            is_active: true,
+            is_overlay: true,
+            nodes: vec![
+                // Userspace root.
+                identity_transform(),
+                // OverlayManager.Slot at arbitrary world pose -- this is the case where the
+                // bug originally manifested: the dash was being drawn at OverlayManager.Slot's
+                // world pose because the model matrix path was folding it in.
+                RenderTransform {
+                    position: Vec3::new(12.0, -5.0, 8.0),
+                    scale: Vec3::splat(3.0),
+                    rotation: Quat::from_axis_angle(Vec3::Y, 1.2),
+                },
+                // OverlayRoot (identity local, AddSlot default).
+                identity_transform(),
+                // VisualsRoot, exactly as host sets it: identity rotation+translation, scale
+                // from `1f / num2 * num5` (~1.5 for a typical desktop window).
+                RenderTransform {
+                    position: Vec3::ZERO,
+                    scale: Vec3::splat(1.5),
+                    rotation: Quat::IDENTITY,
+                },
+                // Curved plane at VisualsRoot-local center.
+                identity_transform(),
+            ],
+            node_parents: vec![-1, 0, 1, 2, 3],
+            layer_assignments: vec![crate::scene::render_space::LayerAssignmentEntry {
+                node_id: 2,
+                layer: crate::shared::LayerType::Overlay,
+            }],
+            layer_index_dirty: true,
+            ..Default::default()
+        },
+    );
+    let space = scene.spaces.get(&id).expect("space");
+    let mut cache = WorldTransformCache::default();
+    compute_world_matrices_for_space(id.0, &space.nodes, &space.node_parents, &mut cache)
+        .expect("solve");
+    scene.world_caches.insert(id, cache);
+
+    let model = scene
+        .overlay_layer_model_matrix_for_context(id, 4, RenderingContext::UserView)
+        .expect("overlay model");
+    let viewport = Viewport::from_tuple((1920, 1080));
+    let overlay_proj =
+        HostCameraFrame::overlay_projection(viewport, CameraClipPlanes::new(0.1, 100.0));
+    // Mirrors the view-shift `compute_per_draw_vp_matrices` applies for overlay items.
+    let overlay_view = Mat4::from_translation(Vec3::new(0.0, 0.0, -1.0));
+    let vp = overlay_proj * overlay_view;
+
+    // Vertex at curved plane's local origin -> NDC origin (screen center) in xy.
+    let origin_clip = vp * model * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
+    let origin_ndc_x = origin_clip.x / origin_clip.w;
+    let origin_ndc_y = origin_clip.y / origin_clip.w;
+    let origin_ndc_z = origin_clip.z / origin_clip.w;
+    assert!(
+        origin_ndc_x.abs() < 1e-4,
+        "expected NDC x≈0 (screen center), got {origin_ndc_x}",
+    );
+    assert!(
+        origin_ndc_y.abs() < 1e-4,
+        "expected NDC y≈0 (screen center), got {origin_ndc_y}",
+    );
+    assert!(
+        (0.0..=1.0).contains(&origin_ndc_z),
+        "expected NDC z in [0, 1] for reverse-Z (view-shift pushes vertex into frustum), got {origin_ndc_z}",
+    );
+
+    // Vertex at curved plane's local (+0.5, 0, 0): with VisualsRoot scale 1.5 -> overlay-local
+    // x = 0.75. Overlay ortho has half_height = 1.0, so half_width = aspect.
+    // NDC_x = 0.75 / (1920/1080).
+    let right_clip = vp * model * glam::Vec4::new(0.5, 0.0, 0.0, 1.0);
+    let right_ndc_x = right_clip.x / right_clip.w;
+    let expected_x = 0.75 * 1080.0 / 1920.0;
+    assert!(
+        (right_ndc_x - expected_x).abs() < 1e-3,
+        "expected NDC x≈{expected_x}, got {right_ndc_x}",
+    );
+    assert!(
+        right_ndc_x.abs() < 1.0,
+        "NDC x must stay within [-1, 1] to be visible on screen; got {right_ndc_x}",
+    );
 }
 
 /// Cached zero-scale state reports the selected node as non-renderable for draw collection.

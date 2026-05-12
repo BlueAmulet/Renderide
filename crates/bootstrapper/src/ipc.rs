@@ -117,9 +117,7 @@ pub(crate) fn open_bootstrap_queues_with_host_endpoints(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    use crate::test_env::lock_interprocess_env;
 
     #[test]
     fn bootstrap_queue_base_names_match_suffixes() {
@@ -130,8 +128,8 @@ mod tests {
 
     #[test]
     fn interprocess_backing_dir_defaults_when_env_unset() {
-        let _g = ENV_LOCK.lock().expect("env lock");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        let _g = lock_interprocess_env();
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -140,14 +138,14 @@ mod tests {
 
     #[test]
     fn interprocess_backing_dir_respects_env() {
-        let _g = ENV_LOCK.lock().expect("env lock");
+        let _g = lock_interprocess_env();
         let tmp = std::env::temp_dir().join(format!("bootstrapper_ipc_env_{}", std::process::id()));
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
         assert_eq!(interprocess_backing_dir(), PathBuf::from(&tmp));
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -155,13 +153,13 @@ mod tests {
 
     #[test]
     fn interprocess_backing_dir_empty_env_falls_back() {
-        let _g = ENV_LOCK.lock().expect("env lock");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        let _g = lock_interprocess_env();
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, "");
         }
         assert_eq!(interprocess_backing_dir(), default_memory_dir());
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -169,12 +167,12 @@ mod tests {
 
     #[test]
     fn bootstrap_queues_open_rejects_prefix_containing_slash() {
-        let _g = ENV_LOCK.lock().expect("env lock");
+        let _g = lock_interprocess_env();
         let tmp =
             std::env::temp_dir().join(format!("bootstrapper_ipc_invalid_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
@@ -182,7 +180,7 @@ mod tests {
         // Slash in the prefix flows through to the composed queue name and must be rejected by
         // QueueOptions validation, surfaced as BootstrapError::QueueOptionsInvalid.
         let result = BootstrapQueues::open("bad/prefix");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -197,20 +195,20 @@ mod tests {
 
     #[test]
     fn bootstrap_queues_open_rejects_prefix_with_nul() {
-        let _g = ENV_LOCK.lock().expect("env lock");
+        let _g = lock_interprocess_env();
         let tmp = std::env::temp_dir().join(format!(
             "bootstrapper_ipc_invalid_nul_{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
 
         let result = BootstrapQueues::open("bad\0prefix");
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }
@@ -226,12 +224,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn bootstrap_queues_open_creates_backing_under_custom_dir() {
-        let _g = ENV_LOCK.lock().expect("env lock");
+        let _g = lock_interprocess_env();
         let tmp =
             std::env::temp_dir().join(format!("bootstrapper_ipc_open_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
         }
@@ -250,7 +248,7 @@ mod tests {
         assert!(!tmp.join(format!("{in_name}.qu")).exists());
         assert!(!tmp.join(format!("{out_name}.qu")).exists());
 
-        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        // SAFETY: env mutation in test; serialized by the interprocess env test lock.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
         }

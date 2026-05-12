@@ -13,7 +13,6 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 
 use crate::error::HarnessError;
-use crate::host::{HarnessRunOutcome, HostHarness, HostHarnessConfig, SessionTemplate};
 use crate::scene_dsl::output::default_output_root;
 use crate::scene_dsl::runner::RunnerConfig;
 use crate::scene_dsl::suite::{SuiteConfig, run_suite, select_cases, update_suite};
@@ -44,7 +43,8 @@ pub fn run() -> ExitCode {
 #[derive(Parser, Debug)]
 #[command(
     name = "renderide-test",
-    about = "Mock host harness for Renderide golden-image integration tests."
+    about = "Mock host harness for Renderide golden-image integration tests.",
+    disable_help_subcommand = true
 )]
 struct Cli {
     #[command(subcommand)]
@@ -53,39 +53,6 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Run the harness, then overwrite the golden PNG at `--out` with the produced image.
-    Generate {
-        /// Path of the golden image to write.
-        #[arg(long, default_value = "crates/renderide-test/goldens/unlit_sphere.png")]
-        out: PathBuf,
-        /// Common harness options.
-        #[command(flatten)]
-        common: CommonOpts,
-    },
-    /// Run the harness and compare the produced PNG against the committed golden via SSIM.
-    Check {
-        /// Path of the golden image to compare against.
-        #[arg(long, default_value = "crates/renderide-test/goldens/unlit_sphere.png")]
-        golden: PathBuf,
-        /// Minimum hybrid SSIM score required to pass (0.0 - 1.0).
-        ///
-        /// Default 0.95 absorbs cross-adapter variance (Intel vs lavapipe vs other). The
-        /// flat-image sanity gate in [`crate::golden`] rejects clear-only frames regardless.
-        #[arg(long, default_value_t = 0.85)]
-        ssim_min: f64,
-        /// Where to write the diff visualization on failure.
-        #[arg(long, default_value = "target/golden-diff.png")]
-        diff_out: PathBuf,
-        /// Common harness options.
-        #[command(flatten)]
-        common: CommonOpts,
-    },
-    /// Run the harness for local debugging without comparison.
-    Run {
-        /// Common harness options.
-        #[command(flatten)]
-        common: CommonOpts,
-    },
     /// Run the registered scene suite in parallel and fail if any case fails.
     CheckSuite {
         /// Suite harness options.
@@ -98,34 +65,6 @@ enum Command {
         #[command(flatten)]
         suite: SuiteOpts,
     },
-}
-
-#[derive(Parser, Debug, Clone)]
-struct CommonOpts {
-    /// Path to the renderide binary to spawn (defaults to `target/{profile}/renderide`).
-    #[arg(long)]
-    renderer: Option<PathBuf>,
-    /// Use the `dev-fast` profile renderer binary (`target/dev-fast/renderide`).
-    #[arg(long, default_value_t = false, conflicts_with = "release")]
-    dev_fast: bool,
-    /// Use the release-mode renderer binary (`target/release/renderide`).
-    #[arg(long, default_value_t = false, conflicts_with = "dev_fast")]
-    release: bool,
-    /// Output resolution (`WxH`) for the offscreen render target.
-    #[arg(long, default_value = "256x256")]
-    resolution: String,
-    /// How long to wait for handshake / asset acks / a fresh PNG.
-    #[arg(long, default_value_t = 30)]
-    timeout_seconds: u64,
-    /// Custom path for the renderer's PNG output (default: a tempfile under the OS temp dir).
-    #[arg(long)]
-    output: Option<PathBuf>,
-    /// Renderer interval between consecutive offscreen renders (ms).
-    #[arg(long, default_value_t = 1000)]
-    interval_ms: u64,
-    /// Print the renderer process's stdout/stderr instead of swallowing it.
-    #[arg(long, default_value_t = false)]
-    verbose_renderer: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -161,31 +100,6 @@ struct SuiteOpts {
 
 fn dispatch(cli: Cli) -> Result<(), HarnessError> {
     match cli.command {
-        Command::Generate { out, common } => {
-            let outcome = run_harness(&common)?;
-            crate::golden::generate(&outcome.png_path, &out)?;
-            logger::info!("Wrote golden to {}", out.display());
-            println!("Wrote golden to {}", out.display());
-            Ok(())
-        }
-        Command::Check {
-            golden,
-            ssim_min,
-            diff_out,
-            common,
-        } => {
-            let outcome = run_harness(&common)?;
-            let score = crate::golden::check(&outcome.png_path, &golden, ssim_min, &diff_out)?;
-            logger::info!("SSIM score {score:.4} >= threshold {ssim_min:.4}");
-            println!("SSIM score {score:.4} >= threshold {ssim_min:.4}");
-            Ok(())
-        }
-        Command::Run { common } => {
-            let outcome = run_harness(&common)?;
-            logger::info!("Produced PNG at {}", outcome.png_path.display());
-            println!("Produced PNG at {}", outcome.png_path.display());
-            Ok(())
-        }
         Command::CheckSuite { suite } => run_suite_command(&suite),
         Command::UpdateSuite { suite } => run_update_suite_command(&suite),
     }
@@ -287,50 +201,6 @@ fn print_suite_outcome(
     );
 }
 
-fn run_harness(common: &CommonOpts) -> Result<HarnessRunOutcome, HarnessError> {
-    let (width, height) = parse_resolution(&common.resolution);
-    let timeout = Duration::from_secs(common.timeout_seconds);
-    let renderer_path = match &common.renderer {
-        Some(p) => p.clone(),
-        None => resolve_renderer_path(BuildProfile::from_flags(common.release, common.dev_fast)),
-    };
-    logger::info!(
-        "Harness: resolved renderer_path={}, resolution={}x{}, timeout={timeout:?}, interval_ms={}, verbose_renderer={}",
-        renderer_path.display(),
-        width,
-        height,
-        common.interval_ms,
-        common.verbose_renderer
-    );
-    let cfg = HostHarnessConfig {
-        renderer_path,
-        forced_output_path: common.output.clone(),
-        width,
-        height,
-        interval_ms: common.interval_ms,
-        timeout,
-        verbose_renderer: common.verbose_renderer,
-        template: SessionTemplate::Sphere,
-    };
-    let mut harness = HostHarness::start(cfg)?;
-    let outcome = harness.run()?;
-    Ok(outcome)
-}
-
-/// Parses a `WxH` resolution string into a `(width, height)` tuple.
-///
-/// Accepts both lowercase `x` and uppercase `X` separators. Width and height are clamped to a
-/// minimum of `1` so callers never receive a zero-sized render target. Returns the default
-/// `(256, 256)` when the input is malformed.
-pub fn parse_resolution(s: &str) -> (u32, u32) {
-    if let Some((w_str, h_str)) = s.split_once(['x', 'X'])
-        && let (Ok(w), Ok(h)) = (w_str.parse::<u32>(), h_str.parse::<u32>())
-    {
-        return (w.max(1), h.max(1));
-    }
-    (256, 256)
-}
-
 /// Cargo build profile selecting which `target/<profile>/renderide` binary to spawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuildProfile {
@@ -408,24 +278,29 @@ fn renderide_next_to_this_test_binary() -> Option<PathBuf> {
 mod cli_tests {
     use std::path::PathBuf;
 
-    use super::{BuildProfile, default_renderer_path, parse_resolution, resolve_renderer_path};
+    use clap::{CommandFactory, Parser, error::ErrorKind};
+
+    use super::{BuildProfile, Cli, default_renderer_path, resolve_renderer_path};
 
     #[test]
-    fn parse_resolution_accepts_lowercase_and_uppercase_x() {
-        assert_eq!(parse_resolution("128x64"), (128, 64));
-        assert_eq!(parse_resolution("128X64"), (128, 64));
+    fn cli_exposes_only_suite_subcommands() {
+        let names: Vec<_> = Cli::command()
+            .get_subcommands()
+            .map(|cmd| cmd.get_name().to_string())
+            .collect();
+
+        assert_eq!(names, ["check-suite", "update-suite"]);
     }
 
     #[test]
-    fn parse_resolution_invalid_falls_back_to_default() {
-        assert_eq!(parse_resolution("not-a-resolution"), (256, 256));
-        assert_eq!(parse_resolution(""), (256, 256));
-    }
+    fn help_subcommand_is_disabled_but_help_flag_still_works() {
+        let help_subcommand = Cli::try_parse_from(["renderide-test", "help"])
+            .expect_err("help subcommand should be disabled");
+        assert_ne!(help_subcommand.kind(), ErrorKind::DisplayHelp);
 
-    #[test]
-    fn parse_resolution_clamps_zero_dimensions_to_one() {
-        assert_eq!(parse_resolution("0x0"), (1, 1));
-        assert_eq!(parse_resolution("0x64"), (1, 64));
+        let help_flag = Cli::try_parse_from(["renderide-test", "--help"])
+            .expect_err("--help should print clap help");
+        assert_eq!(help_flag.kind(), ErrorKind::DisplayHelp);
     }
 
     #[test]

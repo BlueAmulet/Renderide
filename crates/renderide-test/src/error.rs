@@ -60,8 +60,8 @@ pub enum HarnessError {
         /// Sample RGBA (typically the first pixel).
         color: [u8; 4],
     },
-    /// Golden image is missing on disk; run `generate` first.
-    #[error("golden image not found at {0}; run `renderide-test generate` first")]
+    /// Golden image is missing on disk; run `update-suite` first.
+    #[error("golden image not found at {0}; run `renderide-test update-suite --case <name>` first")]
     GoldenMissing(PathBuf),
     /// Perceptual diff failed against the configured threshold.
     #[error(
@@ -119,7 +119,7 @@ mod tests {
         let p = PathBuf::from("missing.png");
         let e = HarnessError::GoldenMissing(p);
         assert!(e.to_string().contains("golden image not found"));
-        assert!(e.to_string().contains("generate"));
+        assert!(e.to_string().contains("update-suite"));
     }
 
     #[test]
