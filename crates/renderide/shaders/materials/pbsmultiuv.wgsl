@@ -157,7 +157,12 @@ fn sample_surface(
         let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
         c = c * textureSample(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
     }
-    let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_albedo);
+    var clip_sample = mat._Color * acs::texture_rgba_base_mip(_MainTex, _MainTex_sampler, uv_albedo);
+    if (pbs_kw(PBSMULTIUV_KW_DUAL_ALBEDO)) {
+        let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
+        clip_sample = clip_sample * acs::texture_rgba_base_mip(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
+    }
+    let clip_alpha = clip_sample.a;
     if (pbs_kw(PBSMULTIUV_KW_ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
         discard;
     }
