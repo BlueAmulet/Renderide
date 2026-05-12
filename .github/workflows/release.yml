@@ -135,16 +135,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: Renderide
           key: release-${{ matrix.platform }}
 
       - name: Build (release)
-        working-directory: Renderide
         run: cargo build --release --locked -p renderide -p bootstrapper
 
       - name: Stage zip (Unix)
         if: runner.os != 'Windows'
-        working-directory: Renderide
         env:
           PLATFORM: ${{ matrix.platform }}
           TAG: ${{ needs.select-commit.outputs.tag }}
@@ -161,7 +158,6 @@ jobs:
 
       - name: Stage zip (Windows)
         if: runner.os == 'Windows'
-        working-directory: Renderide
         shell: pwsh
         env:
           PLATFORM: ${{ matrix.platform }}
@@ -184,7 +180,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: renderide-${{ matrix.platform }}
-          path: Renderide/dist/renderide-${{ matrix.platform }}-${{ needs.select-commit.outputs.tag }}.zip
+          path: dist/renderide-${{ matrix.platform }}-${{ needs.select-commit.outputs.tag }}.zip
           if-no-files-found: error
 
   publish:
