@@ -175,6 +175,32 @@ fn reflection_probe_specular_samples_unity_oriented_atlas() -> io::Result<()> {
 }
 
 #[test]
+fn xiexe_indirect_diffuse_uses_pbs_energy_split() -> io::Result<()> {
+    let lighting_src =
+        source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
+    for required in [
+        "let indirect_specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);",
+        "let indirect_specular_energy = brdf::indirect_specular_energy_from_dfg(",
+        "let indirect_diffuse_energy_scale =\n        brdf::indirect_diffuse_energy_scale(indirect_specular_energy, indirect_specular_enabled);",
+        "diffuse = diffuse + s.albedo.rgb * ambient * indirect_diffuse_energy_scale * s.occlusion;",
+    ] {
+        assert!(
+            lighting_src.contains(required),
+            "Indirect-diffuse path must use PBSMetallic-style energy split; missing `{required}`"
+        );
+    }
+    assert!(
+        !lighting_src.contains("diffuse = diffuse * s.occlusion;"),
+        "The combined `diffuse * occlusion` step must be removed; AO now modulates indirect diffuse only"
+    );
+    assert!(
+        !lighting_src.contains("diffuse = diffuse + s.albedo.rgb * ambient;"),
+        "Indirect diffuse must include the PBSMetallic energy scale, not raw `albedo * ambient`"
+    );
+    Ok(())
+}
+
+#[test]
 fn xiexe_direct_diffuse_uses_filament_lambert_with_ramp_tint() -> io::Result<()> {
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;

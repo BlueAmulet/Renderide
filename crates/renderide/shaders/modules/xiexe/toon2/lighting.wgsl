@@ -367,6 +367,22 @@ fn clustered_toon_lighting(
     let env = environment_tint(s, view_dir, world_pos, view_layer);
     let primary_specular_terms = primary_direct_specular_terms(s, view_dir);
 
+    // Indirect diffuse / specular share a single energy budget: whatever the spec
+    // probe lobe takes, the diffuse term must give up. Mirrors PBSMetallic's
+    // `shade_metallic_clustered` (modules/pbs/lighting.wgsl:166-169).
+    let indirect_specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);
+    let n_dot_v = clamp(dot(s.normal, view_dir), 0.0, 1.0);
+    let indirect_specular_enabled =
+        rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());
+    let indirect_dfg = brdf::sample_ibl_dfg_lut(s.roughness, n_dot_v);
+    let indirect_specular_energy = brdf::indirect_specular_energy_from_dfg(
+        indirect_dfg,
+        indirect_specular_reflectance,
+        indirect_specular_enabled,
+    );
+    let indirect_diffuse_energy_scale =
+        brdf::indirect_diffuse_energy_scale(indirect_specular_energy, indirect_specular_enabled);
+
     let cluster_id = pcls::cluster_id_from_frag(
         frag_xy,
         world_pos,
@@ -425,12 +441,16 @@ fn clustered_toon_lighting(
         }
     }
 
-    // Diffuse = sum(direct) + albedo * ambient, then occlusion-tinted -- XSLightingFunctions.cginc:347-358.
+    // Diffuse = sum_lights(direct) + albedo * ambient * energy_scale * colored_occlusion.
+    // The `energy_scale` is `(1 - indirect_specular_energy)` so the indirect-light budget is
+    // split between the diffuse and specular probe responses, mirroring PBSMetallic's
+    // `indirect_diffuse_metallic` (modules/pbs/brdf.wgsl:196-206). Colored `_OcclusionColor`
+    // is the XSToon stylization layered on top, and it only modulates indirect diffuse here
+    // (matching PBSMetallic's AO behavior; direct diffuse stays unattenuated).
     var diffuse = direct_diffuse;
     if (base_pass) {
-        diffuse = diffuse + s.albedo.rgb * ambient;
+        diffuse = diffuse + s.albedo.rgb * ambient * indirect_diffuse_energy_scale * s.occlusion;
     }
-    diffuse = diffuse * s.occlusion;
 
     // Shadow rim multiplies diffuse before any specular accumulation -- XSLighting.cginc:58.
     var col = diffuse;
