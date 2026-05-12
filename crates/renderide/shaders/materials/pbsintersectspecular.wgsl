@@ -54,19 +54,21 @@ fn pbs_kw(mask: u32) -> bool {
 }
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
-    var n = world_n;
     if (pbs_kw(PBSINTERSECTSPECULAR_KW_NORMALMAP)) {
-        let tbn = pnorm::orthonormal_tbn(n, world_t);
-        let ts_n = nd::decode_ts_normal_with_placeholder_sample(
+        let tbn = pnorm::orthonormal_tbn(world_n, world_t);
+        var ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_main),
             mat._NormalScale,
         );
-        n = normalize(tbn * ts_n);
+        if (!front_facing) {
+            ts_n.z = -ts_n.z;
+        }
+        return normalize(tbn * ts_n);
     }
     if (!front_facing) {
-        n = -n;
+        return -world_n;
     }
-    return n;
+    return world_n;
 }
 
 fn intersection_lerp(frag_pos: vec4<f32>, world_pos: vec3<f32>, view_layer: u32) -> f32 {

@@ -199,7 +199,6 @@ fn pbsmetallic_decodes_keywords_from_variant_bits() -> io::Result<()> {
             ("PBSMETALLIC_KW_PARALLAXMAP", 8),
             ("PBSMETALLIC_KW_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A", 9),
             ("PBSMETALLIC_KW_SPECULARHIGHLIGHTS_OFF", 10),
-            ("PBSMETALLIC_KW_EDITOR_VISUALIZATION", 11),
         ],
     )
 }

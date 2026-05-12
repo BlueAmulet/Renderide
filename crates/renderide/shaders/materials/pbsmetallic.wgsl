@@ -57,7 +57,6 @@ const PBSMETALLIC_KW_NORMALMAP: u32 = 1u << 7u;
 const PBSMETALLIC_KW_PARALLAXMAP: u32 = 1u << 8u;
 const PBSMETALLIC_KW_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A: u32 = 1u << 9u;
 const PBSMETALLIC_KW_SPECULARHIGHLIGHTS_OFF: u32 = 1u << 10u;
-const PBSMETALLIC_KW_EDITOR_VISUALIZATION: u32 = 1u << 11u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsMetallicMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;

@@ -154,7 +154,12 @@ fn sample_surface(
         let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
         c = c * textureSample(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
     }
-    let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_albedo);
+    var clip_sample = mat._Color * acs::texture_rgba_base_mip(_MainTex, _MainTex_sampler, uv_albedo);
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_DUAL_ALBEDO)) {
+        let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
+        clip_sample = clip_sample * acs::texture_rgba_base_mip(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
+    }
+    let clip_alpha = clip_sample.a;
     if (pbs_kw(PBSMULTIUVSPECULAR_KW_ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
         discard;
     }
@@ -164,8 +169,8 @@ fn sample_surface(
         let uv_spec = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SpecularUV), mat._SpecularMap_ST);
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_spec);
     }
-    let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-    let smoothness = clamp(spec.a, 0.0, 1.0);
+    let f0 = spec.rgb - spec.rgb;
+    let smoothness = clamp(spec.a - spec.a, 0.0, 1.0);
     let roughness = clamp(1.0 - smoothness, 0.0, 1.0);
     let one_minus_reflectivity = 1.0 - max(max(f0.r, f0.g), f0.b);
 

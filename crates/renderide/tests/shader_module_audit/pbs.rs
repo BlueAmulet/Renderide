@@ -272,12 +272,12 @@ fn shared_pbs_lighting_roots_do_not_duplicate_clustered_lighting() -> io::Result
     Ok(())
 }
 
-/// PBS DualSided materials should shade backfaces as a second opaque surface, not as light leaking
-/// through the front side. The visible-side frame must be shared so the metallic/specular variants
-/// cannot drift back to tangent-Z or world-Z flips.
+/// PBS DualSided materials should shade backfaces according to their Unity surface shader source.
+/// Most use the shared visible-side frame; the transparent specular variant keeps Unity's explicit
+/// tangent-Z flip.
 
 #[test]
-fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> {
+fn pbs_dualsided_shaders_orient_backfaces_with_source_parity() -> io::Result<()> {
     let normal_src = source_file(manifest_dir().join("shaders/modules/pbs/normal.wgsl"))?;
     for required in [
         "fn visible_side_tbn(",
@@ -297,7 +297,6 @@ fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> 
         "pbsdualsided.wgsl",
         "pbsdualsidedspecular.wgsl",
         "pbsdualsidedtransparent.wgsl",
-        "pbsdualsidedtransparentspecular.wgsl",
     ] {
         let src = material_source(file_name)?;
         for required in ["@builtin(front_facing)", "pnorm::visible_side_tbn("] {
@@ -316,9 +315,34 @@ fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> 
         }
     }
 
+    let transparent_specular = material_source("pbsdualsidedtransparentspecular.wgsl")?;
+    for required in [
+        "@builtin(front_facing)",
+        "pnorm::orthonormal_tbn(",
+        "ts_n.z = -ts_n.z",
+    ] {
+        if !transparent_specular.contains(required) {
+            offenders.push(format!(
+                "pbsdualsidedtransparentspecular.wgsl must contain `{required}`"
+            ));
+        }
+    }
+    if transparent_specular.contains("pnorm::visible_side_tbn(") {
+        offenders.push(
+            "pbsdualsidedtransparentspecular.wgsl must not contain `pnorm::visible_side_tbn(`"
+                .to_string(),
+        );
+    }
+    if transparent_specular.contains("sample_optional_world_normal(") {
+        offenders.push(
+            "pbsdualsidedtransparentspecular.wgsl must not contain `sample_optional_world_normal(`"
+                .to_string(),
+        );
+    }
+
     assert!(
         offenders.is_empty(),
-        "PBS DualSided shaders must orient normals through the shared visible-side TBN:\n  {}",
+        "PBS DualSided shaders must orient backfaces according to their Unity source parity:\n  {}",
         offenders.join("\n  ")
     );
     Ok(())
