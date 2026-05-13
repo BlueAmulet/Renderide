@@ -279,7 +279,7 @@ fn precompute_and_assign_material_batches(
     offscreen_write_rt: Option<i32>,
     plan: &mut InstancePlan,
 ) -> Vec<MaterialBatchPacket> {
-    // Resolve per-batch pipelines and @group(1) bind groups in parallel (Filament phase-A).
+    // Resolve per-batch pipelines and @group(1) bind groups in parallel.
     // Results live on `PreparedWorldMeshForwardFrame`; both raster sub-passes consume them.
     let mut precomputed_batches = Vec::new();
     let mut resolve = |boundaries_scratch: &mut Vec<MaterialBatchBoundary>| {
