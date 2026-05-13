@@ -167,6 +167,47 @@ fn transparent_rgb_pass_ignores_material_render_state_overrides() {
     assert_eq!(pass.material_state, MaterialPassState::Static);
 }
 
+/// Verifies volume passes keep cull/depth fixed while accepting stencil state.
+#[test]
+fn volume_front_pass_policy_preserves_authored_volume_state() {
+    let state = override_state(true);
+    let pass = pass_from_kind(PassKind::VolumeFront, "fs_volume");
+
+    assert_eq!(pass.resolved_color_writes(state), wgpu::ColorWrites::ALL);
+    assert!(!pass.resolved_depth_write(state));
+    assert_eq!(
+        pass.resolved_depth_compare(state),
+        wgpu::CompareFunction::Always
+    );
+    assert_eq!(pass.resolved_cull_mode(state), Some(wgpu::Face::Front));
+    assert_eq!(
+        pass.resolved_stencil_state(state).front.pass_op,
+        wgpu::StencilOperation::Replace
+    );
+    assert_eq!(
+        pass.resolved_depth_bias(state),
+        wgpu::DepthBiasState::default()
+    );
+}
+
+/// Verifies volume shaders declare the fixed front-culled volume pass.
+#[test]
+fn volume_stems_use_volume_front_pass() {
+    for stem in ["fogboxvolume_default", "volumeunlit_default"] {
+        let passes = crate::embedded_shaders::embedded_target_passes(stem);
+        assert_eq!(passes.len(), 1, "{stem}");
+        assert_eq!(passes[0].name, "volume_front", "{stem}");
+        assert_eq!(
+            passes[0].depth_compare,
+            wgpu::CompareFunction::Always,
+            "{stem}"
+        );
+        assert!(!passes[0].depth_write, "{stem}");
+        assert_eq!(passes[0].cull_mode, Some(wgpu::Face::Front), "{stem}");
+        assert_eq!(passes[0].write_mask, wgpu::ColorWrites::ALL, "{stem}");
+    }
+}
+
 /// Verifies PBSRim transparent zwrite variants preserve their depth-only stem before transparent color.
 #[test]
 fn pbsrim_zwrite_stems_keep_depth_prepass_before_transparent_forward() {
