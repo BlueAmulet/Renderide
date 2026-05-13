@@ -491,6 +491,38 @@ fn overlay_pass_preserves_explicit_blend_one_zero_for_alpha_max() {
 }
 
 #[test]
+fn volume_front_pass_matches_unity_volume_state() {
+    let pass = pass_from_kind(PassKind::VolumeFront, "fs_volume");
+    let blend = pass.blend.expect("volume blend");
+
+    assert_eq!(pass.name, "volume_front");
+    assert_eq!(pass.material_state, MaterialPassState::Overlay);
+    assert_eq!(pass.depth_compare, wgpu::CompareFunction::Always);
+    assert!(!pass.depth_write);
+    assert_eq!(pass.cull_mode, Some(wgpu::Face::Front));
+    assert_eq!(pass.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::Zero);
+    assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+}
+
+#[test]
+fn volume_front_preserves_explicit_one_zero_alpha_max_blend() {
+    let pass = pass_from_kind(PassKind::VolumeFront, "fs_volume");
+    let materialized =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 1, dst: 0 });
+    let blend = materialized.blend.expect("volume blend");
+
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::Zero);
+    assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+}
+
+#[test]
 fn overlay_always_pass_matches_fixed_overlay_shader_state() {
     let pass = pass_from_kind(PassKind::OverlayAlways, "fs_main");
     let blend = pass.blend.expect("overlay blend");

@@ -69,7 +69,7 @@ pub enum MaterialPassState {
     /// Transparent surface pass whose source-authored premultiplied state remains transparent
     /// unless the material supplies non-opaque blend factors.
     TransparentForward,
-    /// Overlay pass with material-driven `Blend [_SrcBlend][_DstBlend], One One`, `BlendOp Add, Max`.
+    /// Pass with material-driven `Blend [_SrcBlend][_DstBlend], One One`, `BlendOp Add, Max`.
     Overlay,
 }
 
@@ -180,6 +180,16 @@ impl MaterialRenderStatePolicy {
         stencil: true,
         depth_offset: true,
     };
+
+    /// Unit-box volume draws preserve shader-authored blending, culling, and depth state.
+    pub(crate) const VOLUME_FRONT: Self = Self {
+        color_mask: false,
+        depth_write: false,
+        depth_compare: false,
+        cull: false,
+        stencil: true,
+        depth_offset: false,
+    };
 }
 
 /// Semantic pass kind authored as `//#pass <kind>` above an `@fragment` entry point.
@@ -211,6 +221,8 @@ pub enum PassKind {
     ForwardTransparentCullBack,
     /// Transparent unlit draw: `Blend SrcAlpha OneMinusSrcAlpha`, `ColorMask RGB`, `ZWrite Off`, `Cull Off`.
     TransparentRgb,
+    /// Unit-box volume draw: `Cull Front`, `ZWrite Off`, `ZTest Always`, alpha-max blend.
+    VolumeFront,
     /// Outline silhouette pass: `Cull Front` so back faces of an inflated shell show.
     Outline,
     /// Stencil material pass: `Cull Front`, `ZWrite Off`, material-driven color mask and stencil.
@@ -232,21 +244,7 @@ pub enum PassKind {
 /// [`MaterialRenderStatePolicy`], and blend state via [`materialized_pass_for_blend_mode`] when the
 /// kind's [`MaterialPassState`] is not [`MaterialPassState::Static`].
 pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> MaterialPassDesc {
-    let base = MaterialPassDesc {
-        name: pass_kind_label(kind),
-        vertex_entry: "vs_main",
-        fragment_entry,
-        depth_compare: crate::gpu::MAIN_FORWARD_DEPTH_COMPARE,
-        depth_write: true,
-        cull_mode: Some(wgpu::Face::Back),
-        blend: None,
-        write_mask: wgpu::ColorWrites::COLOR,
-        depth_bias_slope_scale: 0.0,
-        depth_bias_constant: 0,
-        alpha_to_coverage: false,
-        material_state: MaterialPassState::Static,
-        render_state_policy: MaterialRenderStatePolicy::FORWARD,
-    };
+    let base = base_pass_desc(kind, fragment_entry);
     match kind {
         PassKind::Forward => MaterialPassDesc {
             material_state: MaterialPassState::Forward,
@@ -287,6 +285,16 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
             write_mask: wgpu::ColorWrites::COLOR,
             render_state_policy: MaterialRenderStatePolicy::STATIC,
+            ..base
+        },
+        PassKind::VolumeFront => MaterialPassDesc {
+            depth_compare: wgpu::CompareFunction::Always,
+            depth_write: false,
+            cull_mode: Some(wgpu::Face::Front),
+            blend: Some(OVERLAY_NOOP_COLOR_MAX_ALPHA_BLEND),
+            write_mask: wgpu::ColorWrites::ALL,
+            material_state: MaterialPassState::Overlay,
+            render_state_policy: MaterialRenderStatePolicy::VOLUME_FRONT,
             ..base
         },
         PassKind::Outline => MaterialPassDesc {
@@ -332,6 +340,24 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
     }
 }
 
+const fn base_pass_desc(kind: PassKind, fragment_entry: &'static str) -> MaterialPassDesc {
+    MaterialPassDesc {
+        name: pass_kind_label(kind),
+        vertex_entry: "vs_main",
+        fragment_entry,
+        depth_compare: crate::gpu::MAIN_FORWARD_DEPTH_COMPARE,
+        depth_write: true,
+        cull_mode: Some(wgpu::Face::Back),
+        blend: None,
+        write_mask: wgpu::ColorWrites::COLOR,
+        depth_bias_slope_scale: 0.0,
+        depth_bias_constant: 0,
+        alpha_to_coverage: false,
+        material_state: MaterialPassState::Static,
+        render_state_policy: MaterialRenderStatePolicy::FORWARD,
+    }
+}
+
 const fn fixed_transparent_pass(
     base: MaterialPassDesc,
     blend: wgpu::BlendState,
@@ -373,6 +399,7 @@ const fn pass_kind_label(kind: PassKind) -> &'static str {
         PassKind::ForwardTransparentCullFront => "forward_transparent_cull_front",
         PassKind::ForwardTransparentCullBack => "forward_transparent_cull_back",
         PassKind::TransparentRgb => "transparent_rgb",
+        PassKind::VolumeFront => "volume_front",
         PassKind::Outline => "outline",
         PassKind::Stencil => "stencil",
         PassKind::DepthPrepass => "depth_prepass",
