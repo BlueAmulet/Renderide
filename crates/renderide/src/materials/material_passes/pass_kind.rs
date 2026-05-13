@@ -57,22 +57,6 @@ const ONE_ONE_MINUS_SRC_ALPHA_BLEND: wgpu::BlendState = wgpu::BlendState {
     },
 };
 
-/// Unity straight alpha blend used by surface shaders that declare `alpha` without explicit
-/// material blend-factor properties.
-const UNITY_ALPHA_BLEND: wgpu::BlendState = wgpu::BlendState {
-    color: wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::SrcAlpha,
-        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-        operation: wgpu::BlendOperation::Add,
-    },
-    // Matches Unity shader syntax: `Blend SrcAlpha OneMinusSrcAlpha, One One` + `BlendOp Add, Max`.
-    alpha: wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::One,
-        dst_factor: wgpu::BlendFactor::One,
-        operation: wgpu::BlendOperation::Max,
-    },
-};
-
 /// How a declared shader pass applies material-driven Unity render state.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MaterialPassState {
@@ -82,8 +66,8 @@ pub enum MaterialPassState {
     /// Forward pass with material-driven blend: `Blend [_SrcBlend] [_DstBlend]`, `ZWrite [_ZWrite]`.
     /// One pass per material -- directional + local lights are accumulated in a single shader call.
     Forward,
-    /// Transparent surface pass whose source-authored `alpha` state remains transparent unless
-    /// the material supplies non-opaque blend factors.
+    /// Transparent surface pass whose source-authored premultiplied state remains transparent
+    /// unless the material supplies non-opaque blend factors.
     TransparentForward,
     /// Overlay pass with material-driven `Blend [_SrcBlend][_DstBlend], One One`, `BlendOp Add, Max`.
     Overlay,
@@ -370,7 +354,7 @@ const fn transparent_forward_pass(
     MaterialPassDesc {
         depth_write: false,
         cull_mode,
-        blend: Some(UNITY_ALPHA_BLEND),
+        blend: Some(ONE_ONE_MINUS_SRC_ALPHA_BLEND),
         write_mask: wgpu::ColorWrites::ALL,
         material_state: MaterialPassState::TransparentForward,
         render_state_policy,

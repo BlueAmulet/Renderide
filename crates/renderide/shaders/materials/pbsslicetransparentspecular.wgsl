@@ -189,12 +189,11 @@ fn fs_main(
     let edge_emission = mix(emission, mat._EdgeEmissionColor.rgb, edge_lerp);
 
     let surface = psurf::specular(c.rgb, c.a, f0, roughness, occlusion, n, edge_emission);
-    let color = plight::shade_specular_clustered(
+    return plight::shade_specular_transparent_clustered(
         frag_pos.xy,
         world_pos,
         view_layer,
         surface,
         plight::default_lighting_options(),
     );
-    return vec4<f32>(color, c.a);
 }

@@ -218,6 +218,19 @@ fn indirect_diffuse_specular(
     return ambient * base_color * clamp(one_minus_reflectivity, 0.0, 1.0) * energy_scale * occlusion;
 }
 
+/// Unity Standard metallic workflow diffuse reflectivity remainder.
+fn metallic_one_minus_reflectivity(metallic: f32) -> f32 {
+    let one_minus_dielectric_spec = 1.0 - DEFAULT_DIELECTRIC_F0;
+    return one_minus_dielectric_spec * (1.0 - clamp(metallic, 0.0, 1.0));
+}
+
+/// Unity Standard premultiplied transparency output alpha.
+fn unity_premultiplied_alpha(alpha: f32, one_minus_reflectivity: f32) -> f32 {
+    let diffuse_alpha = clamp(alpha, 0.0, 1.0);
+    let diffuse_visibility = clamp(one_minus_reflectivity, 0.0, 1.0);
+    return 1.0 - diffuse_visibility + diffuse_alpha * diffuse_visibility;
+}
+
 /// Unity Standard metallic workflow F0 tint.
 fn metallic_f0(base_color: vec3<f32>, metallic: f32) -> vec3<f32> {
     return mix(vec3<f32>(DEFAULT_DIELECTRIC_F0), base_color, metallic);

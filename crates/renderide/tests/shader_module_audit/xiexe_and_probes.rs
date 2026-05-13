@@ -13,6 +13,11 @@ fn xiexe_transparent_keeps_premultiplied_transparent_pass_directive() -> io::Res
         !src.contains("//#pass forward\n"),
         "xstoon2.0-transparent.wgsl must not alias the opaque forward pass"
     );
+    let main_src = source_file(manifest_dir().join("shaders/modules/xiexe/toon2/main.wgsl"))?;
+    assert!(
+        !main_src.contains("rgb = rgb * alpha"),
+        "XSToon transparent must not premultiply the entire lit RGB result like straight alpha"
+    );
     Ok(())
 }
 

@@ -226,7 +226,7 @@ fn pbs_dualsided_opaque_stems_preserve_authored_cull_off() {
     }
 }
 
-/// Asserts that a shader stem declares one alpha-blended transparent pass.
+/// Asserts that a shader stem declares one premultiplied transparent pass.
 fn assert_one_transparent_forward_pass(stem: &str) {
     let passes = crate::embedded_shaders::embedded_target_passes(stem);
     assert_eq!(
@@ -243,7 +243,13 @@ fn assert_one_transparent_forward_pass(stem: &str) {
         "{stem}"
     );
     let opaque = materialized_pass_for_blend_mode(&passes[0], MaterialBlendMode::Opaque);
-    assert!(opaque.blend.is_some(), "{stem}");
+    let blend = opaque.blend.expect(stem);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One, "{stem}");
+    assert_eq!(
+        blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha,
+        "{stem}"
+    );
     assert!(!opaque.depth_write, "{stem}");
     assert_eq!(opaque.write_mask, wgpu::ColorWrites::ALL, "{stem}");
 }
@@ -268,7 +274,13 @@ fn assert_depth_prepass_before_transparent_forward(stem: &str) {
         "{stem}"
     );
     let opaque = materialized_pass_for_blend_mode(&passes[1], MaterialBlendMode::Opaque);
-    assert!(opaque.blend.is_some(), "{stem}");
+    let blend = opaque.blend.expect(stem);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One, "{stem}");
+    assert_eq!(
+        blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha,
+        "{stem}"
+    );
     assert!(!opaque.depth_write, "{stem}");
     assert_eq!(opaque.write_mask, wgpu::ColorWrites::ALL, "{stem}");
 }
@@ -291,7 +303,13 @@ fn assert_one_back_face_culled_transparent_pass(stem: &str) {
         "{stem}"
     );
     let opaque = materialized_pass_for_blend_mode(&passes[0], MaterialBlendMode::Opaque);
-    assert!(opaque.blend.is_some(), "{stem}");
+    let blend = opaque.blend.expect(stem);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One, "{stem}");
+    assert_eq!(
+        blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha,
+        "{stem}"
+    );
     assert!(!opaque.depth_write, "{stem}");
     assert_eq!(opaque.write_mask, wgpu::ColorWrites::ALL, "{stem}");
 }
@@ -322,7 +340,13 @@ fn assert_dualsided_transparent_pass_pair(stem: &str) {
     );
     for pass in passes {
         let opaque = materialized_pass_for_blend_mode(pass, MaterialBlendMode::Opaque);
-        assert!(opaque.blend.is_some(), "{stem}");
+        let blend = opaque.blend.expect(stem);
+        assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One, "{stem}");
+        assert_eq!(
+            blend.color.dst_factor,
+            wgpu::BlendFactor::OneMinusSrcAlpha,
+            "{stem}"
+        );
         assert!(!opaque.depth_write, "{stem}");
         assert_eq!(opaque.write_mask, wgpu::ColorWrites::ALL, "{stem}");
     }

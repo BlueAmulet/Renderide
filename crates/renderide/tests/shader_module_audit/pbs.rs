@@ -184,6 +184,61 @@ fn pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<()> {
 }
 
 #[test]
+fn pbs_transparent_roots_use_premultiplied_transparent_lighting() -> io::Result<()> {
+    for material in [
+        "pbsdisplacetransparent.wgsl",
+        "pbsdistancelerptransparent.wgsl",
+        "pbsdualsidedtransparent.wgsl",
+        "pbsrimtransparent.wgsl",
+        "pbsrimtransparentzwrite.wgsl",
+        "pbsslicetransparent.wgsl",
+        "pbstriplanartransparent.wgsl",
+        "pbsvertexcolortransparent.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("plight::shade_metallic_transparent_clustered("),
+            "{material} must use Unity-style premultiplied metallic transparency"
+        );
+        assert!(
+            !src.contains("plight::shade_metallic_clustered("),
+            "{material} must not return straight-alpha metallic lighting"
+        );
+    }
+
+    for material in [
+        "pbsdisplacespeculartransparent.wgsl",
+        "pbsdistancelerpspeculartransparent.wgsl",
+        "pbsdualsidedtransparentspecular.wgsl",
+        "pbsrimtransparentspecular.wgsl",
+        "pbsrimtransparentzwritespecular.wgsl",
+        "pbsslicetransparentspecular.wgsl",
+        "pbstriplanartransparentspecular.wgsl",
+        "pbsvertexcolortransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("plight::shade_specular_transparent_clustered("),
+            "{material} must use Unity-style premultiplied specular transparency"
+        );
+        assert!(
+            !src.contains("plight::shade_specular_clustered("),
+            "{material} must not return straight-alpha specular lighting"
+        );
+    }
+
+    let lighting = module_source("pbs/lighting.wgsl")?;
+    assert!(
+        lighting.contains("brdf::unity_premultiplied_alpha(s.alpha, one_minus_reflectivity)")
+            && lighting
+                .contains("brdf::unity_premultiplied_alpha(s.alpha, s.one_minus_reflectivity)"),
+        "PBS transparent helpers must write Unity's reflectivity-adjusted premultiplied alpha"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
     let birp = module_source("lighting/birp.wgsl")?;
     assert!(

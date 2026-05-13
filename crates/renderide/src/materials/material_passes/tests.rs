@@ -370,7 +370,7 @@ fn overlay_pass_uses_unity_rgb_blend_and_keeps_alpha_max() {
 }
 
 #[test]
-fn forward_transparent_defaults_to_unity_alpha_blend() {
+fn forward_transparent_defaults_to_unity_premultiplied_blend() {
     let pass = pass_from_kind(PassKind::ForwardTransparent, "fs_forward_base");
     let blend = pass.blend.expect("transparent default blend");
 
@@ -378,12 +378,12 @@ fn forward_transparent_defaults_to_unity_alpha_blend() {
     assert_eq!(pass.cull_mode, None);
     assert_eq!(pass.write_mask, wgpu::ColorWrites::ALL);
     assert_eq!(pass.material_state, MaterialPassState::TransparentForward);
-    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
     assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
     assert_eq!(blend.color.operation, wgpu::BlendOperation::Add);
     assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
-    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
-    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Add);
 }
 
 #[test]
@@ -491,7 +491,7 @@ fn transparent_forward_host_blend_override_materializes() {
         .expect("opaque blend factors should preserve transparent source state");
     assert!(!opaque.depth_write);
     assert_eq!(opaque.write_mask, wgpu::ColorWrites::ALL);
-    assert_eq!(opaque_blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(opaque_blend.color.src_factor, wgpu::BlendFactor::One);
     assert_eq!(
         opaque_blend.color.dst_factor,
         wgpu::BlendFactor::OneMinusSrcAlpha
@@ -507,6 +507,22 @@ fn transparent_forward_host_blend_override_materializes() {
     assert_eq!(premultiplied_blend.color.src_factor, wgpu::BlendFactor::One);
     assert_eq!(
         premultiplied_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+
+    let straight_alpha =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 5, dst: 10 });
+    let straight_alpha_blend = straight_alpha
+        .blend
+        .expect("explicit straight-alpha transparent override should materialize");
+    assert!(!straight_alpha.depth_write);
+    assert_eq!(straight_alpha.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(
+        straight_alpha_blend.color.src_factor,
+        wgpu::BlendFactor::SrcAlpha
+    );
+    assert_eq!(
+        straight_alpha_blend.color.dst_factor,
         wgpu::BlendFactor::OneMinusSrcAlpha
     );
 

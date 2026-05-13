@@ -217,8 +217,5 @@ fn fs_forward_base(
         s.normal,
         s.emission,
     );
-    return vec4<f32>(
-        plight::shade_metallic_clustered(frag_pos.xy, world_pos, view_layer, surface, plight::default_lighting_options()),
-        s.alpha,
-    );
+    return plight::shade_metallic_transparent_clustered(frag_pos.xy, world_pos, view_layer, surface, plight::default_lighting_options());
 }
