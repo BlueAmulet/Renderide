@@ -377,7 +377,7 @@ fn forward_transparent_defaults_to_unity_alpha_blend() {
     assert!(!pass.depth_write);
     assert_eq!(pass.cull_mode, None);
     assert_eq!(pass.write_mask, wgpu::ColorWrites::ALL);
-    assert_eq!(pass.material_state, MaterialPassState::Forward);
+    assert_eq!(pass.material_state, MaterialPassState::TransparentForward);
     assert_eq!(blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
     assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
     assert_eq!(blend.color.operation, wgpu::BlendOperation::Add);
@@ -486,9 +486,35 @@ fn transparent_forward_host_blend_override_materializes() {
     assert_eq!(stem_default.write_mask, wgpu::ColorWrites::ALL);
 
     let opaque = materialized_pass_for_blend_mode(&pass, MaterialBlendMode::Opaque);
-    assert_eq!(opaque.blend, None);
-    assert!(opaque.depth_write);
-    assert_eq!(opaque.write_mask, wgpu::ColorWrites::COLOR);
+    let opaque_blend = opaque
+        .blend
+        .expect("opaque blend factors should preserve transparent source state");
+    assert!(!opaque.depth_write);
+    assert_eq!(opaque.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(opaque_blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(
+        opaque_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+
+    let premultiplied =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 1, dst: 10 });
+    let premultiplied_blend = premultiplied
+        .blend
+        .expect("non-opaque transparent override should materialize");
+    assert!(!premultiplied.depth_write);
+    assert_eq!(premultiplied.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(premultiplied_blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(
+        premultiplied_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+
+    let explicit_one_zero =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 1, dst: 0 });
+    assert!(explicit_one_zero.blend.is_some());
+    assert!(!explicit_one_zero.depth_write);
+    assert_eq!(explicit_one_zero.write_mask, wgpu::ColorWrites::ALL);
 }
 
 #[test]

@@ -124,13 +124,33 @@ fn selected_pbs_materials_keep_sorted_shader_variant_bits() -> io::Result<()> {
 }
 
 #[test]
-fn selected_pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<()> {
+fn pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<()> {
     for material in [
+        "pbsdisplacetransparent.wgsl",
+        "pbsdisplacespeculartransparent.wgsl",
+        "pbsdistancelerptransparent.wgsl",
+        "pbsdistancelerpspeculartransparent.wgsl",
+        "pbsrimtransparent.wgsl",
+        "pbsrimtransparentspecular.wgsl",
+        "pbsslicetransparent.wgsl",
+        "pbsslicetransparentspecular.wgsl",
         "pbstriplanartransparent.wgsl",
         "pbstriplanartransparentspecular.wgsl",
     ] {
         let src = material_source(material)?;
         assert_eq!(pass_directives(&src), ["forward_transparent"], "{material}");
+    }
+
+    for material in [
+        "pbsrimtransparentzwrite.wgsl",
+        "pbsrimtransparentzwritespecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(
+            pass_directives(&src),
+            ["depth_prepass", "forward_transparent"],
+            "{material}"
+        );
     }
 
     for material in [
@@ -141,6 +161,21 @@ fn selected_pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<
         assert_eq!(
             pass_directives(&src),
             ["forward_transparent_cull_back"],
+            "{material}"
+        );
+    }
+
+    for material in [
+        "pbsdualsidedtransparent.wgsl",
+        "pbsdualsidedtransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(
+            pass_directives(&src),
+            [
+                "forward_transparent_cull_front",
+                "forward_transparent_cull_back"
+            ],
             "{material}"
         );
     }

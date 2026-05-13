@@ -3,6 +3,20 @@
 use super::*;
 
 #[test]
+fn xiexe_transparent_keeps_premultiplied_transparent_pass_directive() -> io::Result<()> {
+    let src = material_source("xstoon2.0-transparent.wgsl")?;
+    assert!(
+        src.contains("//#pass forward_premultiplied_transparent"),
+        "xstoon2.0-transparent.wgsl must use the source-authored premultiplied transparent pass"
+    );
+    assert!(
+        !src.contains("//#pass forward\n"),
+        "xstoon2.0-transparent.wgsl must not alias the opaque forward pass"
+    );
+    Ok(())
+}
+
+#[test]
 fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     let globals_src = source_file(manifest_dir().join("shaders/modules/frame/globals.wgsl"))?;
     assert!(
