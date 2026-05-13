@@ -130,6 +130,8 @@ fn pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<()> {
         "pbsdisplacespeculartransparent.wgsl",
         "pbsdistancelerptransparent.wgsl",
         "pbsdistancelerpspeculartransparent.wgsl",
+        "pbsintersect.wgsl",
+        "pbsintersectspecular.wgsl",
         "pbsrimtransparent.wgsl",
         "pbsrimtransparentspecular.wgsl",
         "pbsslicetransparent.wgsl",
@@ -189,6 +191,7 @@ fn pbs_transparent_roots_use_premultiplied_transparent_lighting() -> io::Result<
         "pbsdisplacetransparent.wgsl",
         "pbsdistancelerptransparent.wgsl",
         "pbsdualsidedtransparent.wgsl",
+        "pbsintersect.wgsl",
         "pbsrimtransparent.wgsl",
         "pbsrimtransparentzwrite.wgsl",
         "pbsslicetransparent.wgsl",
@@ -210,6 +213,7 @@ fn pbs_transparent_roots_use_premultiplied_transparent_lighting() -> io::Result<
         "pbsdisplacespeculartransparent.wgsl",
         "pbsdistancelerpspeculartransparent.wgsl",
         "pbsdualsidedtransparentspecular.wgsl",
+        "pbsintersectspecular.wgsl",
         "pbsrimtransparentspecular.wgsl",
         "pbsrimtransparentzwritespecular.wgsl",
         "pbsslicetransparentspecular.wgsl",
@@ -234,6 +238,57 @@ fn pbs_transparent_roots_use_premultiplied_transparent_lighting() -> io::Result<
                 .contains("brdf::unity_premultiplied_alpha(s.alpha, s.one_minus_reflectivity)"),
         "PBS transparent helpers must write Unity's reflectivity-adjusted premultiplied alpha"
     );
+
+    Ok(())
+}
+
+#[test]
+fn generic_pbs_premultiply_variants_use_unity_transparent_lighting() -> io::Result<()> {
+    let metallic = material_source("pbsmetallic.wgsl")?;
+    for required in [
+        "fn alpha_premultiply_enabled() -> bool",
+        "if (alpha_premultiply_enabled())",
+        "plight::shade_metallic_transparent_clustered(",
+        "return vec4<f32>(color, s.alpha);",
+    ] {
+        assert!(
+            metallic.contains(required),
+            "pbsmetallic.wgsl must contain `{required}`"
+        );
+    }
+    for forbidden in [
+        "fn apply_premultiply(",
+        "return select(color, color * alpha, alpha_premultiply_enabled());",
+        "return vec4<f32>(apply_premultiply(color, s.alpha), s.alpha);",
+    ] {
+        assert!(
+            !metallic.contains(forbidden),
+            "pbsmetallic.wgsl must not premultiply final lit RGB with `{forbidden}`"
+        );
+    }
+
+    let specular = material_source("pbsspecular.wgsl")?;
+    for required in [
+        "fn alpha_premultiply_enabled() -> bool",
+        "if (alpha_premultiply_enabled())",
+        "plight::shade_specular_transparent_clustered(",
+        "return vec4<f32>(color, s.alpha);",
+    ] {
+        assert!(
+            specular.contains(required),
+            "pbsspecular.wgsl must contain `{required}`"
+        );
+    }
+    for forbidden in [
+        "fn apply_premultiply(",
+        "return select(color, color * alpha, alpha_premultiply_enabled());",
+        "return vec4<f32>(apply_premultiply(color, s.alpha), s.alpha);",
+    ] {
+        assert!(
+            !specular.contains(forbidden),
+            "pbsspecular.wgsl must not premultiply final lit RGB with `{forbidden}`"
+        );
+    }
 
     Ok(())
 }

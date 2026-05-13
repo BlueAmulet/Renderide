@@ -72,6 +72,36 @@ fn resolves_xiexe_src_dst_base_blend_properties() {
 }
 
 #[test]
+fn froox_alpha_and_transparent_blend_factor_shapes_stay_distinct() {
+    let alpha = MaterialBlendMode::from_unity_blend_factors(5.0, 10.0);
+    let transparent = MaterialBlendMode::from_unity_blend_factors(1.0, 10.0);
+    assert_eq!(alpha, MaterialBlendMode::UnityBlend { src: 5, dst: 10 });
+    assert_eq!(
+        transparent,
+        MaterialBlendMode::UnityBlend { src: 1, dst: 10 }
+    );
+
+    let pass = pass_from_kind(PassKind::ForwardTransparent, "fs_forward_base");
+    let alpha_pass = materialized_pass_for_blend_mode(&pass, alpha);
+    let transparent_pass = materialized_pass_for_blend_mode(&pass, transparent);
+    let alpha_blend = alpha_pass.blend.expect("alpha blend");
+    let transparent_blend = transparent_pass.blend.expect("transparent blend");
+
+    assert_eq!(alpha_blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(
+        alpha_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+    assert_eq!(transparent_blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(
+        transparent_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+    assert!(!alpha_pass.depth_write);
+    assert!(!transparent_pass.depth_write);
+}
+
+#[test]
 fn property_block_blend_alias_overrides_material_alias() {
     let reg = PropertyIdRegistry::new();
     let ids = MaterialPipelinePropertyIds::new(&reg);
