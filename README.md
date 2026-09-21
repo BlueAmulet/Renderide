@@ -220,7 +220,11 @@ cargo build --release --features tracy-gpu
 ### Connecting Tracy
 
 1. Download the Tracy profiler GUI from the [Tracy releases page](https://github.com/wolfpld/tracy/releases)
-   and launch it.
+   and launch it. **The GUI major.minor must match the client compiled into the renderer**: Tracy
+   refuses the handshake on a protocol mismatch and the GUI just sits on "connecting". The client
+   version is set by `tracy-client-sys` in `Cargo.lock` (0.30 = Tracy 0.14.x, 0.28 = 0.13.x).
+   Bumping it means bumping `tracy-client` too, and that is patched through `third_party/`, see
+   the workspace `Cargo.toml`.
 
 1. Start Renderide normally (launcher or renderer directly). **On Windows, start it elevated** if
    you want callstack sampling and context-switch tracing: both come from ETW, which needs

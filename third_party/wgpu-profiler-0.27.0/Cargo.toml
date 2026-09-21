@@ -1,0 +1,59 @@
+# Vendored copy of `wgpu-profiler` 0.27.0 (crates.io), wired in through `[patch.crates-io]` in
+# the workspace root. The ONLY code-affecting change is `tracy-client` 0.18 -> 0.19; see
+# `third_party/profiling-1.0.18/Cargo.toml` for the full reasoning (Tracy 0.14 GUI protocol).
+#
+# 0.28.0 upstream is still on `tracy-client` 0.18 and moved to wgpu 30, so it is not a way out
+# either. Examples, tests and dev-dependencies are dropped from the manifest since the files are
+# not vendored; `src/` is byte-for-byte the registry copy. The lone `profiling` dev-dependency
+# stays because the `tracy`/`puffin` features name it and cargo refuses the manifest otherwise;
+# dev-deps of a non-member path crate never reach the lockfile. -xlinka
+
+[package]
+edition = "2021"
+name = "wgpu-profiler"
+version = "0.27.0"
+authors = ["Andreas Reich <r_andreas2@web.de>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Simple profiler scopes for wgpu using timer queries"
+homepage = "https://github.com/Wumpf/wgpu-profiler"
+readme = "README.md"
+keywords = ["graphics"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Wumpf/wgpu-profiler"
+
+[features]
+puffin = ["dep:puffin", "profiling/profile-with-puffin"]
+tracy = ["dep:tracy-client", "profiling/profile-with-tracy"]
+
+[lib]
+name = "wgpu_profiler"
+path = "src/lib.rs"
+
+[dependencies.parking_lot]
+version = "0.12"
+
+[dependencies.puffin]
+version = "0.19.1"
+optional = true
+
+[dependencies.thiserror]
+version = "2"
+
+[dependencies.tracy-client]
+version = "0.19"
+optional = true
+
+[dependencies.wgpu]
+version = "29.0.0"
+default-features = false
+
+[dev-dependencies.profiling]
+version = "1"
+
+[lints.clippy]
+doc_markdown = "warn"

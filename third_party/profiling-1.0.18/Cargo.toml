@@ -1,0 +1,76 @@
+# Vendored copy of `profiling` 1.0.18 (crates.io), wired in through `[patch.crates-io]` in the
+# workspace root. The ONLY change is `tracy-client` 0.18 -> 0.19.
+#
+# Why: `tracy-client` 0.18 caps `tracy-client-sys` at <0.29, which bundles Tracy 0.13.1
+# (protocol 76). The Tracy GUI we run is 0.14.x (protocol 82) and refuses the connection.
+# 0.19 lifts the cap to <0.31 (Tracy 0.14.1). Upstream `profiling` has not bumped, and two
+# `tracy-client` majors in one process means two Tracy clients, so every dependent has to move
+# together: this crate, `wgpu-profiler`, and renderide itself.
+#
+# Public `tracy-client` API is identical between 0.18 and 0.19 (internal FFI shuffles only), so
+# `src/` is byte-for-byte the registry copy. Delete this directory and the patch line once
+# upstream ships a release on 0.19. -xlinka
+
+[package]
+edition = "2018"
+rust-version = "1.60"
+name = "profiling"
+version = "1.0.18"
+authors = ["Philip Degarmo <aclysma@gmail.com>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "This crate provides a very thin abstraction over other profiler crates."
+homepage = "https://github.com/aclysma/profiling"
+readme = "README.md"
+keywords = ["performance", "profiling"]
+categories = ["development-tools::profiling"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/aclysma/profiling"
+
+[features]
+default = ["procmacros"]
+procmacros = ["profiling-procmacros"]
+profile-with-optick = ["optick", "profiling-procmacros?/profile-with-optick"]
+profile-with-puffin = ["puffin", "profiling-procmacros?/profile-with-puffin"]
+profile-with-superluminal = [
+  "superluminal-perf",
+  "profiling-procmacros?/profile-with-superluminal",
+]
+profile-with-tracing = ["tracing", "profiling-procmacros?/profile-with-tracing"]
+profile-with-tracy = [
+  "tracy-client",
+  "profiling-procmacros?/profile-with-tracy",
+]
+type-check = []
+
+[lib]
+name = "profiling"
+path = "src/lib.rs"
+
+[dependencies.optick]
+version = "1.3"
+optional = true
+
+[dependencies.profiling-procmacros]
+version = "1.0.18"
+optional = true
+
+[dependencies.puffin]
+version = "0.20"
+optional = true
+
+[dependencies.superluminal-perf]
+version = "0.4"
+optional = true
+
+[dependencies.tracing]
+version = "0.1"
+optional = true
+
+[dependencies.tracy-client]
+version = "0.19"
+optional = true

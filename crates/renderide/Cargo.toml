@@ -115,11 +115,16 @@ wgpu-profiler = { version = "0.27", optional = true }
 ## near-zero by only streaming data while a profiler GUI is attached. Only compiled when the
 ## `tracy` feature is enabled.
 ##
+## Version must track the Tracy GUI: 0.18 caps tracy-client-sys at <0.29 (Tracy 0.13.1, protocol
+## 76) and a 0.14 GUI refuses that handshake outright. 0.19 allows sys 0.30 (Tracy 0.14.1,
+## protocol 82). `profiling` and `wgpu-profiler` are patched to 0.19 in the workspace root so
+## there is exactly one client in the process; bumping here without them links two.
+##
 ## `default-features = false` here is mostly decorative: `profiling/profile-with-tracy` depends on
 ## tracy-client WITH defaults, and cargo unions features, so a tracy build always ends up with
-## sampling, system-tracing, context-switch-tracing, code-transfer, callstack-inlines, broadcast
-## and crash-handler on. Listing them anyway keeps the resolved set visible instead of hiding it
-## behind a transitive dep. Check with `cargo tree -e features -i tracy-client`.
+## sampling, system-tracing, context-switch-tracing, code-transfer, callstack-inlines, broadcast,
+## crash-handler and wait-stacks on. Listing them anyway keeps the resolved set visible instead of
+## hiding it behind a transitive dep. Check with `cargo tree -e features -i tracy-client`.
 ##
 ## Those are the automatic capture layer, and it is the half that matters when the renderer is CPU
 ## bound: `sampling` grabs periodic callstacks so uninstrumented and third-party code (wgpu, the
@@ -135,7 +140,7 @@ wgpu-profiler = { version = "0.27", optional = true }
 ## handler `process_io::fatal_crash_log` installs, since both want the same process-wide exception
 ## filter and last writer wins. Only tracy builds are affected, never a shipped one, but do not
 ## trust a crash dump taken from a tracy build. -xlinka
-tracy-client = { version = "0.18", optional = true, default-features = false, features = [
+tracy-client = { version = "0.19", optional = true, default-features = false, features = [
   "callstack-inlines",
   "code-transfer",
   "context-switch-tracing",
@@ -144,6 +149,7 @@ tracy-client = { version = "0.18", optional = true, default-features = false, fe
   "ondemand",
   "sampling",
   "system-tracing",
+  "wait-stacks",
 ] }
 ## Optional: enabled by the `video-textures` feature. Provides the GStreamer pipeline that
 ## decodes video texture sources into wgpu textures. Without this feature, video texture

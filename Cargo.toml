@@ -9,6 +9,16 @@ members = [
   "crates/bootstrapper",
   "crates/logger",
 ]
+## Vendored crates under third_party/ are pulled in through [patch.crates-io] below, not as
+## members. Without this cargo sees a Cargo.toml inside the workspace dir and demands a decision.
+exclude = ["third_party"]
+
+## Tracy 0.14 GUI needs tracy-client 0.19 (protocol 82). Upstream `profiling` and `wgpu-profiler`
+## are still on 0.18 and cargo would happily link two Tracy clients into one exe, so both are
+## vendored with a one line version bump. See third_party/profiling-1.0.18/Cargo.toml. -xlinka
+[patch.crates-io]
+profiling = { path = "third_party/profiling-1.0.18" }
+wgpu-profiler = { path = "third_party/wgpu-profiler-0.27.0" }
 
 [profile.dev]
 opt-level = 1
